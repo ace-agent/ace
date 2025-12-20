@@ -1,0 +1,92 @@
+# Environment variables and API keys
+.env
+.env.local
+.env.*.local
+*.key
+*_keys.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Experiment results and logs
+results/
+experiments/
+logs/
+*.log
+problematic_requests/
+
+# Model checkpoints and cache
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+.cache/
+huggingface/
+
+# Data files (uncomment if you want to exclude large datasets)
+# data/
+# *.jsonl
+# *.csv
+# *.parquet
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
