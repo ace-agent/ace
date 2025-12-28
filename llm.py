@@ -12,6 +12,85 @@ from datetime import datetime
 import openai
 from logger import log_llm_call, log_problematic_request
 
+
+def _call_anthropic_api(client, model, prompt, max_tokens, use_json_mode):
+    """
+    Make an API call to Anthropic's Claude models.
+    
+    Args:
+        client: Anthropic client
+        model: Model name (e.g., 'claude-3-5-sonnet-20241022')
+        prompt: Text prompt to send
+        max_tokens: Maximum tokens to generate
+        use_json_mode: Whether to request JSON output (handled via system prompt)
+        
+    Returns:
+        Response object with normalized structure
+    """
+    api_params = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.0,
+    }
+    
+    # Anthropic doesn't have a native JSON mode, but we can instruct via system prompt
+    if use_json_mode:
+        api_params["system"] = "You must respond with valid JSON only. No other text or explanation."
+    
+    response = client.messages.create(**api_params)
+    
+    # Normalize response to match OpenAI structure for downstream processing
+    class NormalizedResponse:
+        def __init__(self, anthropic_response):
+            self.choices = [type('Choice', (), {
+                'message': type('Message', (), {
+                    'content': anthropic_response.content[0].text if anthropic_response.content else None
+                })()
+            })()]
+            self.usage = type('Usage', (), {
+                'prompt_tokens': anthropic_response.usage.input_tokens,
+                'completion_tokens': anthropic_response.usage.output_tokens
+            })()
+    
+    return NormalizedResponse(response), api_params
+
+
+def _call_openai_compatible_api(client, api_provider, model, prompt, max_tokens, use_json_mode):
+    """
+    Make an API call to OpenAI or OpenAI-compatible APIs (SambaNova, Together).
+    
+    Args:
+        client: OpenAI client
+        api_provider: API provider name
+        model: Model name
+        prompt: Text prompt to send
+        max_tokens: Maximum tokens to generate
+        use_json_mode: Whether to use JSON mode
+        
+    Returns:
+        Response object and api_params dict
+    """
+    if api_provider == "openai":
+        max_tokens_key = "max_completion_tokens"
+    else:
+        max_tokens_key = "max_tokens"
+
+    api_params = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0,
+        max_tokens_key: max_tokens
+    }
+    
+    # Add JSON mode if requested
+    if use_json_mode:
+        api_params["response_format"] = {"type": "json_object"}
+    
+    response = client.chat.completions.create(**api_params)
+    return response, api_params
+
+
 def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_tokens=4096, log_dir=None,
                    sleep_seconds=15, retries_on_timeout=1000, attempt=1, use_json_mode=False):
     """
@@ -58,24 +137,16 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
             # Get client
             active_client = client
 
-            # Prepare API call parameters
-            if api_provider == "openai":
-                max_tokens_key = "max_completion_tokens"
-            else:
-                max_tokens_key = "max_tokens"
-
-            api_params = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                max_tokens_key: max_tokens
-            }
-            
-            # Add JSON mode if requested
-            if use_json_mode:
-                api_params["response_format"] = {"type": "json_object"}
+            # Make API call based on provider
             call_start = time.time()
-            response = active_client.chat.completions.create(**api_params)
+            if api_provider == "anthropic":
+                response, api_params = _call_anthropic_api(
+                    active_client, model, prompt, max_tokens, use_json_mode
+                )
+            else:
+                response, api_params = _call_openai_compatible_api(
+                    active_client, api_provider, model, prompt, max_tokens, use_json_mode
+                )
             call_end = time.time()
             
             # Check if response is valid
@@ -142,6 +213,22 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
             if hasattr(openai, 'InternalServerError') and isinstance(e, openai.InternalServerError):
                 is_server_error = True
                 print(f"[{role.upper()}] OpenAI InternalServerError detected")
+            
+            # Check for Anthropic-specific exceptions
+            try:
+                import anthropic
+                if isinstance(e, anthropic.RateLimitError):
+                    is_rate_limit = True
+                    print(f"[{role.upper()}] Anthropic RateLimitError detected")
+                elif isinstance(e, anthropic.InternalServerError):
+                    is_server_error = True
+                    print(f"[{role.upper()}] Anthropic InternalServerError detected")
+                elif isinstance(e, anthropic.APIStatusError):
+                    if hasattr(e, 'status_code') and e.status_code >= 500:
+                        is_server_error = True
+                        print(f"[{role.upper()}] Anthropic server error: HTTP {e.status_code}")
+            except ImportError:
+                pass  # Anthropic not installed
             
             # Debug empty response issues
             if is_empty_response:
