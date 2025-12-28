@@ -1,0 +1,52 @@
+text,category,group
+What currencies can I use?,supported_cards_and_currencies,val
+"My transfers keep on getting declined. My card was working fine up until now, however it has suddenly stopped working. Why is this?",declined_transfer,val
+My card is not working at stores.,declined_card_payment,val
+When I'm traveling is it possible to add money automatically at certain time points?,automatic_top_up,val
+How do I verify my identity online,verify_my_identity,val
+The top-up did not go through.,top_up_failed,val
+I really need to top-up my card today urgently but my card keeps getting declined!! Can you please resolve this problem or let me know if you have any alternatives,top_up_failed,val
+Who do I make a check out to if I want to top off my account?,top_up_by_cash_or_cheque,val
+"I don't want to buy this car anymore, can I cancel the transaction and get a quick refund back?",request_refund,val
+The money has not yet been placed in recipients account.,transfer_not_received_by_recipient,val
+How long does it take for the transfer to go through?,transfer_not_received_by_recipient,val
+Why should I verify the top-up?,verify_top_up,val
+A transfer has been made in my account that I need to cancel.  This was a mistake on my part and I hope we can get this resolved quickly.,cancel_transfer,val
+"I keep trying to make a payment, but it doesn't work.",declined_card_payment,val
+My wallet got stolen a couple hours ago and now I've seen there already is a withdrawal. Help this is absolutely urgent I don't want to loose more money,cash_withdrawal_not_recognised,val
+Are there any ATM's near me that accept this card?,atm_support,val
+How can I check if I have received a refund if it is not yet on my statement?,Refund_not_showing_up,val
+I would like to get help from someone in your customer service department with assisting me with activating my card.,activate_my_card,val
+Top up did not work on the app.,top_up_failed,val
+How does identity check work?,why_verify_identity,val
+Is there something wrong with the ATM? It would not let me pull cash out of my account.,declined_cash_withdrawal,val
+What do you use to figure out the exchange rate for the card?,exchange_rate,val
+Why hasn't the app verified my identity?,unable_to_verify_identity,val
+Where are the cards delivered to,order_physical_card,val
+I just realised I made the wrong payment yesterday. Can you please change it to the right account? It's my rent payment and really really needs to be in the right account by tomorrow,cancel_transfer,val
+I am quite aggravated that I ordered online almost a month ago and I never got my package and I paid for it. I would really appreciate it if I could get a full refund back now.,request_refund,val
+I see non-received cash in my app.,cash_withdrawal_not_recognised,val
+How can I exchange currencies with this app?,exchange_via_app,val
+I topped up my account but the money isn't there now.,topping_up_by_card,val
+Is there a problem with the payment that I see is still pending?,pending_card_payment,val
+Can I possibly change my currency to another?,exchange_via_app,val
+My card is almost expired.  How fast will I get a new one and what is the cost?,card_about_to_expire,val
+Your service is bad.  Close my account.,terminate_account,val
+What are the steps for the identity checks?,verify_my_identity,val
+Is it simple to transfer money using my credit card?,topping_up_by_card,val
+How much is a physical card?,order_physical_card,val
+How do I add cash to my account?,top_up_by_cash_or_cheque,val
+I didn't make this payment and it's on my app,card_payment_not_recognised,val
+How do I query a payment on my card? It looks like I have paid for the same thing twice.,transaction_charged_twice,val
+what are your exchange rates at?,exchange_rate,val
+What is the fee for topping up a US card?,top_up_by_card_charge,val
+What's the limit on total number of cards I can have?,getting_spare_card,val
+What is the status of my top up?,top_up_reverted,val
+Is it possible someone has access to my card? I noticed that there are a couple of payments in the app I'm sure I did not make. Can you find out what's going on here?,card_payment_not_recognised,val
+Where can I find the top up verification code?,verify_top_up,val
+You operate in which countries?,country_support,val
+I have been charged twice for the same thing!,transaction_charged_twice,val
+There is the same transaction showing more than once.,transaction_charged_twice,val
+I am seeing inside the App a some cash withdrawal that is not mine,cash_withdrawal_not_recognised,val
+I have a disposable card but it does not work?,virtual_card_not_working,val
+Why are my transfers getting declined?,declined_transfer,val
