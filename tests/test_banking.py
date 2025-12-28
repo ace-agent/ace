@@ -11,21 +11,22 @@ This script tests the complete ACE workflow for the banking dataset:
 
 Usage:
     export ANTHROPIC_API_KEY="your-api-key"
+    cd /path/to/ace
     
     # Run quick tests only (prompts for offline training)
-    python3 test_banking.py
+    python3 -m tests.test_banking
     
     # Run all tests including offline training (no prompts)
-    python3 test_banking.py --all
+    python3 -m tests.test_banking --all
     
     # Skip the long offline training test
-    python3 test_banking.py --skip-offline
+    python3 -m tests.test_banking --skip-offline
     
     # Run only the offline training test
-    python3 test_banking.py --offline-only
+    python3 -m tests.test_banking --offline-only
     
     # Use a smaller subset for faster testing
-    python3 test_banking.py --offline-only --max-samples 20
+    python3 -m tests.test_banking --offline-only --max-samples 20
 
 Results are saved to ./test_results/banking/ directory.
 """
@@ -36,6 +37,9 @@ import json
 import argparse
 from datetime import datetime
 from dotenv import load_dotenv
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment variables
 load_dotenv()
@@ -74,8 +78,9 @@ def load_banking_dataset(max_samples: int = None):
     Returns:
         Tuple of (train_samples, val_samples, test_samples)
     """
+    # Go up one level from tests/ to ace/
     base_path = os.path.dirname(os.path.dirname(__file__))
-    data_path = os.path.join(base_path, "banking_data_split")
+    data_path = os.path.join(base_path, "banking", "data")
     
     # Load raw data
     train_raw = load_data(os.path.join(data_path, "train.csv"))

@@ -11,18 +11,19 @@ This script tests the complete ACE workflow:
 
 Usage:
     export ANTHROPIC_API_KEY="your-api-key"
+    cd /path/to/ace
     
     # Run quick tests only (prompts for offline training)
-    python3 test_ace_e2e.py
+    python3 -m tests.test_ace_e2e
     
     # Run all tests including offline training (no prompts)
-    python3 test_ace_e2e.py --all
+    python3 -m tests.test_ace_e2e --all
     
     # Skip the long offline training test
-    python3 test_ace_e2e.py --skip-offline
+    python3 -m tests.test_ace_e2e --skip-offline
     
     # Run only the offline training test
-    python3 test_ace_e2e.py --offline-only
+    python3 -m tests.test_ace_e2e --offline-only
 
 Results are saved to ./test_results/ directory.
 """
@@ -34,6 +35,9 @@ import argparse
 from datetime import datetime
 from dotenv import load_dotenv
 
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Load environment variables
 load_dotenv()
 
@@ -41,7 +45,6 @@ load_dotenv()
 def log(message: str = "", end: str = "\n"):
     """Print with immediate flush for real-time output visibility."""
     print(message, end=end, flush=True)
-
 
 class SimpleDataProcessor:
     """

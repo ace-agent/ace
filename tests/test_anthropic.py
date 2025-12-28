@@ -10,15 +10,19 @@ This script tests:
 Usage:
     # Set your API key first
     export ANTHROPIC_API_KEY="your-api-key"
+    cd /path/to/ace
     
     # Run the test
-    python test_anthropic.py
+    python3 -m tests.test_anthropic
 """
 
 import os
 import sys
 import json
 from dotenv import load_dotenv
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment variables
 load_dotenv()
