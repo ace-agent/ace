@@ -11,19 +11,36 @@ This script tests the complete ACE workflow:
 
 Usage:
     export ANTHROPIC_API_KEY="your-api-key"
+    
+    # Run quick tests only (prompts for offline training)
     python3 test_ace_e2e.py
+    
+    # Run all tests including offline training (no prompts)
+    python3 test_ace_e2e.py --all
+    
+    # Skip the long offline training test
+    python3 test_ace_e2e.py --skip-offline
+    
+    # Run only the offline training test
+    python3 test_ace_e2e.py --offline-only
+
+Results are saved to ./test_results/ directory.
 """
 
 import os
 import sys
 import json
-import tempfile
-import shutil
+import argparse
 from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+
+def log(message: str = "", end: str = "\n"):
+    """Print with immediate flush for real-time output visibility."""
+    print(message, end=end, flush=True)
 
 
 class SimpleDataProcessor:
@@ -266,19 +283,20 @@ def create_geography_qa_dataset():
 def test_ace_offline_training():
     """Test the full ACE offline training workflow."""
     
-    print("\n" + "="*70)
-    print("ACE END-TO-END TEST: OFFLINE TRAINING MODE")
-    print("="*70)
+    log("\n" + "="*70)
+    log("ACE END-TO-END TEST: OFFLINE TRAINING MODE")
+    log("="*70)
     
-    # Create temporary directory for results
-    temp_dir = tempfile.mkdtemp(prefix="ace_test_")
-    print(f"\nResults will be saved to: {temp_dir}")
+    # Create results directory (permanent location)
+    results_dir = os.path.join(os.path.dirname(__file__), "test_results", "offline_training")
+    os.makedirs(results_dir, exist_ok=True)
+    log(f"\nResults will be saved to: {results_dir}")
     
     try:
         from ace import ACE
         
         # Initialize ACE system with Anthropic
-        print("\n[1/5] Initializing ACE system with Anthropic...")
+        log("\n[1/5] Initializing ACE system with Anthropic...")
         ace_system = ACE(
             api_provider="anthropic",
             generator_model="claude-3-5-haiku-20241022",
@@ -288,22 +306,22 @@ def test_ace_offline_training():
             initial_playbook=None,  # Start with empty playbook
             use_bulletpoint_analyzer=False
         )
-        print("   ✓ ACE system initialized")
+        log("   ✓ ACE system initialized")
         
         # Create dataset
-        print("\n[2/5] Creating test dataset...")
+        log("\n[2/5] Creating test dataset...")
         train_samples, val_samples, test_samples = create_geography_qa_dataset()
-        print(f"   ✓ Train samples: {len(train_samples)}")
-        print(f"   ✓ Validation samples: {len(val_samples)}")
-        print(f"   ✓ Test samples: {len(test_samples)}")
+        log(f"   ✓ Train samples: {len(train_samples)}")
+        log(f"   ✓ Validation samples: {len(val_samples)}")
+        log(f"   ✓ Test samples: {len(test_samples)}")
         
         # Create data processor
-        print("\n[3/5] Creating data processor...")
+        log("\n[3/5] Creating data processor...")
         processor = SimpleDataProcessor(task_name="geography_qa")
-        print("   ✓ Data processor created")
+        log("   ✓ Data processor created")
         
         # Configure training
-        print("\n[4/5] Configuring training...")
+        log("\n[4/5] Configuring training...")
         config = {
             'num_epochs': 1,
             'max_num_rounds': 2,  # Max reflection rounds
@@ -314,16 +332,17 @@ def test_ace_offline_training():
             'task_name': 'geography_qa_test',
             'json_mode': False,
             'no_ground_truth': False,
-            'save_dir': temp_dir,
+            'save_dir': results_dir,
             'test_workers': 1,  # Single worker for testing
         }
-        print(f"   ✓ Configuration:")
+        log(f"   ✓ Configuration:")
         for key, value in config.items():
-            print(f"      - {key}: {value}")
+            log(f"      - {key}: {value}")
         
         # Run offline training
-        print("\n[5/5] Starting offline training...")
-        print("-" * 70)
+        log("\n[5/5] Starting offline training...")
+        log("      (ACE system logs will appear below)")
+        log("-" * 70)
         
         results = ace_system.run(
             mode='offline',
@@ -334,60 +353,62 @@ def test_ace_offline_training():
             config=config
         )
         
-        print("-" * 70)
-        print("\n" + "="*70)
-        print("TRAINING COMPLETED")
-        print("="*70)
+        log("-" * 70)
+        log("\n" + "="*70)
+        log("TRAINING COMPLETED")
+        log("="*70)
         
         # Display results
-        print("\n📊 RESULTS SUMMARY:")
+        log("\n📊 RESULTS SUMMARY:")
         
         if 'initial_test_results' in results:
-            print(f"\n   Initial Test Accuracy: {results['initial_test_results'].get('accuracy', 'N/A'):.3f}")
+            log(f"\n   Initial Test Accuracy: {results['initial_test_results'].get('accuracy', 'N/A'):.3f}")
         
         if 'training_results' in results:
             tr = results['training_results']
-            print(f"\n   Training Results:")
-            print(f"      - Final validation accuracy: {tr.get('final_val_accuracy', 'N/A')}")
-            print(f"      - Best validation accuracy: {tr.get('best_val_accuracy', 'N/A')}")
-            print(f"      - Training steps completed: {tr.get('steps_completed', 'N/A')}")
+            log(f"\n   Training Results:")
+            log(f"      - Final validation accuracy: {tr.get('final_val_accuracy', 'N/A')}")
+            log(f"      - Best validation accuracy: {tr.get('best_val_accuracy', 'N/A')}")
+            log(f"      - Training steps completed: {tr.get('steps_completed', 'N/A')}")
         
         if 'final_test_results' in results:
-            print(f"\n   Final Test Accuracy: {results['final_test_results'].get('accuracy', 'N/A'):.3f}")
+            log(f"\n   Final Test Accuracy: {results['final_test_results'].get('accuracy', 'N/A'):.3f}")
         
         # Show playbook evolution
-        print("\n📝 FINAL PLAYBOOK:")
-        print("-" * 50)
+        log("\n📝 FINAL PLAYBOOK:")
+        log("-" * 50)
         playbook_preview = ace_system.best_playbook[:1000] if len(ace_system.best_playbook) > 1000 else ace_system.best_playbook
-        print(playbook_preview)
+        log(playbook_preview)
         if len(ace_system.best_playbook) > 1000:
-            print(f"\n... (truncated, total length: {len(ace_system.best_playbook)} chars)")
-        print("-" * 50)
+            log(f"\n... (truncated, total length: {len(ace_system.best_playbook)} chars)")
+        log("-" * 50)
         
         # Save final playbook
-        playbook_path = os.path.join(temp_dir, "final_playbook.txt")
+        playbook_path = os.path.join(results_dir, "final_playbook.txt")
         with open(playbook_path, 'w') as f:
             f.write(ace_system.best_playbook)
-        print(f"\n💾 Final playbook saved to: {playbook_path}")
+        log(f"\n💾 Final playbook saved to: {playbook_path}")
         
-        print("\n✅ ACE OFFLINE TRAINING TEST PASSED!")
-        return True, temp_dir
+        log("\n✅ ACE OFFLINE TRAINING TEST PASSED!")
+        return True, results_dir
         
     except Exception as e:
-        print(f"\n❌ ACE OFFLINE TRAINING TEST FAILED: {e}")
+        log(f"\n❌ ACE OFFLINE TRAINING TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
-        return False, temp_dir
+        return False, results_dir
 
 
 def test_ace_eval_only():
     """Test ACE evaluation-only mode."""
     
-    print("\n" + "="*70)
-    print("ACE END-TO-END TEST: EVAL ONLY MODE")
-    print("="*70)
+    log("\n" + "="*70)
+    log("ACE END-TO-END TEST: EVAL ONLY MODE")
+    log("="*70)
     
-    temp_dir = tempfile.mkdtemp(prefix="ace_eval_test_")
+    # Create results directory (permanent location)
+    results_dir = os.path.join(os.path.dirname(__file__), "test_results", "eval_only")
+    os.makedirs(results_dir, exist_ok=True)
     
     try:
         from ace import ACE
@@ -401,7 +422,7 @@ def test_ace_eval_only():
 - Don't confuse largest city with capital (e.g., Sydney vs Canberra for Australia)
 """
         
-        print("\n[1/3] Initializing ACE system...")
+        log("\n[1/3] Initializing ACE system...")
         ace_system = ACE(
             api_provider="anthropic",
             generator_model="claude-3-5-haiku-20241022",
@@ -410,19 +431,19 @@ def test_ace_eval_only():
             max_tokens=1024,
             initial_playbook=initial_playbook
         )
-        print("   ✓ ACE system initialized with custom playbook")
+        log("   ✓ ACE system initialized with custom playbook")
         
         # Create test data
-        print("\n[2/3] Creating test dataset...")
+        log("\n[2/3] Creating test dataset...")
         _, _, test_samples = create_geography_qa_dataset()
         processor = SimpleDataProcessor(task_name="geography_qa")
-        print(f"   ✓ Test samples: {len(test_samples)}")
+        log(f"   ✓ Test samples: {len(test_samples)}")
         
         # Run evaluation
-        print("\n[3/3] Running evaluation...")
+        log("\n[3/3] Running evaluation...")
         config = {
             'task_name': 'geography_eval_test',
-            'save_dir': temp_dir,
+            'save_dir': results_dir,
             'test_workers': 1,
             'json_mode': False,
         }
@@ -434,31 +455,31 @@ def test_ace_eval_only():
             config=config
         )
         
-        print("\n📊 EVALUATION RESULTS:")
+        log("\n📊 EVALUATION RESULTS:")
         if 'test_results' in results:
-            print(f"   Test Accuracy: {results['test_results'].get('accuracy', 'N/A'):.3f}")
+            log(f"   Test Accuracy: {results['test_results'].get('accuracy', 'N/A'):.3f}")
         
-        print("\n✅ ACE EVAL ONLY TEST PASSED!")
-        return True, temp_dir
+        log("\n✅ ACE EVAL ONLY TEST PASSED!")
+        return True, results_dir
         
     except Exception as e:
-        print(f"\n❌ ACE EVAL ONLY TEST FAILED: {e}")
+        log(f"\n❌ ACE EVAL ONLY TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
-        return False, temp_dir
+        return False, results_dir
 
 
 def test_single_training_step():
     """Test a single training step to verify the core loop works."""
     
-    print("\n" + "="*70)
-    print("ACE END-TO-END TEST: SINGLE TRAINING STEP")
-    print("="*70)
+    log("\n" + "="*70)
+    log("ACE END-TO-END TEST: SINGLE TRAINING STEP")
+    log("="*70)
     
     try:
         from ace import ACE
         
-        print("\n[1/4] Initializing ACE system...")
+        log("\n[1/4] Initializing ACE system...")
         ace_system = ACE(
             api_provider="anthropic",
             generator_model="claude-3-5-haiku-20241022",
@@ -466,10 +487,10 @@ def test_single_training_step():
             curator_model="claude-3-5-haiku-20241022",
             max_tokens=1024
         )
-        print("   ✓ ACE system initialized")
+        log("   ✓ ACE system initialized")
         
         # Test single generation
-        print("\n[2/4] Testing Generator...")
+        log("\n[2/4] Testing Generator...")
         question = "What is the capital of the United Kingdom?"
         playbook = ace_system.playbook
         
@@ -481,11 +502,11 @@ def test_single_training_step():
             use_json_mode=False,
             call_id="test_gen_step"
         )
-        print(f"   ✓ Generator response received ({len(response)} chars)")
-        print(f"   Response preview: {response[:200]}...")
+        log(f"   ✓ Generator response received ({len(response)} chars)")
+        log(f"   Response preview: {response[:200]}...")
         
         # Test reflector with correct parameters
-        print("\n[3/4] Testing Reflector...")
+        log("\n[3/4] Testing Reflector...")
         reflection, bullet_tags, call_info = ace_system.reflector.reflect(
             question=question,
             reasoning_trace=response,
@@ -496,11 +517,11 @@ def test_single_training_step():
             use_ground_truth=True,
             call_id="test_reflect_step"
         )
-        print(f"   ✓ Reflector response received ({len(reflection)} chars)")
-        print(f"   Reflection preview: {reflection[:200]}...")
+        log(f"   ✓ Reflector response received ({len(reflection)} chars)")
+        log(f"   Reflection preview: {reflection[:200]}...")
         
         # Test curator with correct parameters
-        print("\n[4/4] Testing Curator...")
+        log("\n[4/4] Testing Curator...")
         playbook_stats = {
             "total_bullets": 0,
             "sections": {},
@@ -517,24 +538,24 @@ def test_single_training_step():
             use_ground_truth=True,
             call_id="test_curate_step"
         )
-        print(f"   ✓ Curator response received ({len(updated_playbook)} chars)")
-        print(f"   Operations performed: {len(operations)}")
+        log(f"   ✓ Curator response received ({len(updated_playbook)} chars)")
+        log(f"   Operations performed: {len(operations)}")
         
         # Check if playbook was updated
         if updated_playbook != playbook:
-            print("   ✓ Playbook was updated!")
-            print(f"\n   Updated playbook preview:")
-            print("-" * 50)
-            print(updated_playbook[:500])
-            print("-" * 50)
+            log("   ✓ Playbook was updated!")
+            log(f"\n   Updated playbook preview:")
+            log("-" * 50)
+            log(updated_playbook[:500])
+            log("-" * 50)
         else:
-            print("   ℹ Playbook unchanged (no new insights)")
+            log("   ℹ Playbook unchanged (no new insights)")
         
-        print("\n✅ SINGLE TRAINING STEP TEST PASSED!")
+        log("\n✅ SINGLE TRAINING STEP TEST PASSED!")
         return True
         
     except Exception as e:
-        print(f"\n❌ SINGLE TRAINING STEP TEST FAILED: {e}")
+        log(f"\n❌ SINGLE TRAINING STEP TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -543,54 +564,78 @@ def test_single_training_step():
 def main():
     """Run all end-to-end tests."""
     
-    print("\n" + "#"*70)
-    print("#" + " "*20 + "ACE FRAMEWORK E2E TESTS" + " "*20 + "#")
-    print("#" + " "*15 + "Testing with Anthropic Provider" + " "*15 + "#")
-    print("#"*70)
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='ACE Framework E2E Tests with Anthropic')
+    parser.add_argument('--all', '-a', action='store_true', 
+                        help='Run all tests including offline training (no prompts)')
+    parser.add_argument('--skip-offline', action='store_true',
+                        help='Skip the offline training test')
+    parser.add_argument('--offline-only', action='store_true',
+                        help='Only run the offline training test')
+    args = parser.parse_args()
+    
+    log("\n" + "#"*70)
+    log("#" + " "*20 + "ACE FRAMEWORK E2E TESTS" + " "*20 + "#")
+    log("#" + " "*15 + "Testing with Anthropic Provider" + " "*15 + "#")
+    log("#"*70)
     
     # Check API key
     api_key = os.getenv('ANTHROPIC_API_KEY', '')
     if not api_key:
-        print("\n❌ ERROR: ANTHROPIC_API_KEY environment variable not set!")
-        print("Please set it with: export ANTHROPIC_API_KEY='your-api-key'")
+        log("\n❌ ERROR: ANTHROPIC_API_KEY environment variable not set!")
+        log("Please set it with: export ANTHROPIC_API_KEY='your-api-key'")
         sys.exit(1)
     
-    print(f"\n✓ ANTHROPIC_API_KEY is set (length: {len(api_key)} chars)")
+    log(f"\n✓ ANTHROPIC_API_KEY is set (length: {len(api_key)} chars)")
     
     results = []
-    temp_dirs = []
+    result_dirs = []
     
-    # Test 1: Single training step (quick sanity check)
-    result1 = test_single_training_step()
-    results.append(("Single Training Step", result1))
-    
-    # Test 2: Evaluation only mode
-    result2, temp_dir2 = test_ace_eval_only()
-    results.append(("Eval Only Mode", result2))
-    temp_dirs.append(temp_dir2)
+    if not args.offline_only:
+        # Test 1: Single training step (quick sanity check)
+        result1 = test_single_training_step()
+        results.append(("Single Training Step", result1))
+        
+        # Test 2: Evaluation only mode
+        result2, result_dir2 = test_ace_eval_only()
+        results.append(("Eval Only Mode", result2))
+        result_dirs.append(result_dir2)
     
     # Test 3: Full offline training (this takes longer)
-    print("\n" + "!"*70)
-    print("NOTE: The next test (Offline Training) may take several minutes...")
-    print("!"*70)
-    
-    try:
-        proceed = input("\nRun full offline training test? [y/N]: ").strip().lower()
-    except EOFError:
-        proceed = 'n'  # Default to not running if non-interactive
-        
-    if proceed == 'y':
-        result3, temp_dir3 = test_ace_offline_training()
-        results.append(("Offline Training", result3))
-        temp_dirs.append(temp_dir3)
-    else:
-        print("Skipping offline training test.")
+    if args.skip_offline:
+        log("\n⏭️  Skipping offline training test (--skip-offline flag)")
         results.append(("Offline Training", "SKIPPED"))
+    elif args.all or args.offline_only:
+        log("\n" + "="*70)
+        log("Starting Offline Training test (this may take several minutes)...")
+        log("="*70)
+        result3, result_dir3 = test_ace_offline_training()
+        results.append(("Offline Training", result3))
+        result_dirs.append(result_dir3)
+    else:
+        log("\n" + "!"*70)
+        log("NOTE: The next test (Offline Training) may take several minutes...")
+        log("!"*70)
+        
+        try:
+            proceed = input("\nRun full offline training test? [y/N]: ").strip().lower()
+        except EOFError:
+            proceed = 'n'  # Default to not running if non-interactive
+            log("\n(Non-interactive mode detected, skipping offline training)")
+            
+        if proceed == 'y':
+            result3, result_dir3 = test_ace_offline_training()
+            results.append(("Offline Training", result3))
+            result_dirs.append(result_dir3)
+        else:
+            log("Skipping offline training test.")
+            log("Tip: Use --all to run all tests without prompts")
+            results.append(("Offline Training", "SKIPPED"))
     
     # Summary
-    print("\n" + "="*70)
-    print("TEST SUMMARY")
-    print("="*70)
+    log("\n" + "="*70)
+    log("TEST SUMMARY")
+    log("="*70)
     
     passed = 0
     failed = 0
@@ -606,34 +651,22 @@ def main():
         else:
             status = "❌ FAIL"
             failed += 1
-        print(f"  {status}: {name}")
+        log(f"  {status}: {name}")
     
-    print(f"\nTotal: {passed} passed, {failed} failed, {skipped} skipped")
+    log(f"\nTotal: {passed} passed, {failed} failed, {skipped} skipped")
     
-    # Cleanup prompt
-    if temp_dirs:
-        print(f"\n📁 Test results saved in:")
-        for td in temp_dirs:
-            print(f"   - {td}")
-        
-        try:
-            cleanup = input("\nCleanup temp directories? [y/N]: ").strip().lower()
-        except EOFError:
-            cleanup = 'n'  # Default to not cleaning up if running non-interactively
-            
-        if cleanup == 'y':
-            for td in temp_dirs:
-                try:
-                    shutil.rmtree(td)
-                    print(f"   Removed: {td}")
-                except Exception as e:
-                    print(f"   Failed to remove {td}: {e}")
+    # Show results location
+    if result_dirs:
+        log(f"\n📁 Test results saved in:")
+        for rd in result_dirs:
+            log(f"   - {rd}")
+        log("\n   Playbooks can be found in the 'ace_run_*' subdirectories.")
     
     if failed > 0:
-        print("\n❌ Some tests failed!")
+        log("\n❌ Some tests failed!")
         sys.exit(1)
     else:
-        print("\n🎉 All executed tests passed!")
+        log("\n🎉 All executed tests passed!")
         sys.exit(0)
 
 

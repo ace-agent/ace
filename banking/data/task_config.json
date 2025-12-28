@@ -1,0 +1,7 @@
+{
+    "banking": {
+        "train_data": "../banking_data_split/train.csv",
+        "val_data": "../banking_data_split/val.csv",
+        "test_data": "../banking_data_split/test.csv"
+    }
+}
