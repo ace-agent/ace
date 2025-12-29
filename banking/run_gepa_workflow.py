@@ -71,8 +71,8 @@ ALLOWED_TOPICS = [
 
 
 class TopicResponse(dspy.Signature):
-    """Classify the problem into one of the predefined categories."""
-    question = dspy.InputField(desc='Customer question')
+    """You are a banking customer support classifier. Given a customer's question or message, classify it into exactly one of the predefined banking support categories. Focus on the customer's primary intent and the specific banking service or issue they're asking about."""
+    question = dspy.InputField(desc='Customer question or message about banking services')
     topic: Literal['card_arrival', 'card_linking', 'exchange_rate', 'card_payment_wrong_exchange_rate', 
                    'extra_charge_on_statement', 'pending_cash_withdrawal', 
                    'fiat_currency_support', 'card_delivery_estimate', 
@@ -100,7 +100,7 @@ class TopicResponse(dspy.Signature):
                    'balance_not_updated_after_bank_transfer', 'cash_withdrawal_not_recognised', 
                    'exchange_charge', 'top_up_by_card_charge', 'activate_my_card', 
                    'cash_withdrawal_charge', 'card_about_to_expire', 'apple_pay_or_google_pay', 
-                   'verify_my_identity', 'country_support'] = dspy.OutputField(desc='Topic from the predefined categories')
+                   'verify_my_identity', 'country_support'] = dspy.OutputField(desc='The single most appropriate topic category for this customer question')
 
 
 def metric(gold, pred, trace=None):
@@ -337,7 +337,7 @@ def run_baseline_evaluation(test_set, num_threads, results_dir):
     return accuracy, baseline_program
 
 
-def run_gepa_training(train_set, val_set, main_lm, reflection_lm, num_threads, results_dir):
+def run_gepa_training(train_set, val_set, main_lm, reflection_lm, num_threads, results_dir, auto_mode="medium"):
     """Step 2: Train GEPA to optimize the prompt."""
     log("\n" + "="*70)
     log("STEP 2: GEPA TRAINING")
@@ -349,22 +349,25 @@ def run_gepa_training(train_set, val_set, main_lm, reflection_lm, num_threads, r
     # Create a fresh program for optimization
     program_to_optimize = dspy.ChainOfThought(TopicResponse)
     
-    # Initialize GEPA optimizer
+    # Initialize GEPA optimizer with more aggressive settings
+    # Key changes:
+    # 1. auto="medium" or "heavy" for more optimization iterations
+    # 2. Larger reflection_minibatch_size to see more examples per iteration
     gepa_optimizer = GEPA(
         metric=metric_with_feedback,
-        auto="light",
+        auto=auto_mode,  # Try "medium" or "heavy" for more iterations
         num_threads=num_threads,
         track_stats=True,
-        reflection_minibatch_size=16,
+        reflection_minibatch_size=32,  # Increased from 16 to see more diverse examples
         track_best_outputs=True,
         add_format_failure_as_feedback=True,
-        reflection_lm=reflection_lm
+        reflection_lm=reflection_lm,
     )
     
     log(f"\nGEPA configuration:")
-    log(f"  - Auto mode: light")
+    log(f"  - Auto mode: {auto_mode}")
     log(f"  - Num threads: {num_threads}")
-    log(f"  - Reflection minibatch size: 16")
+    log(f"  - Reflection minibatch size: 32")
     
     # Run optimization
     log(f"\nRunning GEPA optimization...")
@@ -464,10 +467,13 @@ def main():
                         help='Limit test samples (for faster testing)')
     parser.add_argument('--main-model', type=str, default='anthropic/claude-haiku-4-5',
                         help='Model to use for main LM')
-    parser.add_argument('--reflection-model', type=str, default='anthropic/claude-sonnet-4-5',
+    parser.add_argument('--reflection-model', type=str, default='anthropic/claude-sonnet-4-20250514',
                         help='Model to use for reflection LM')
     parser.add_argument('--num-threads', type=int, default=16,
                         help='Number of threads for parallel evaluation')
+    parser.add_argument('--auto-mode', type=str, default='medium',
+                        choices=['light', 'medium', 'heavy'],
+                        help='GEPA auto mode: light (fast), medium (balanced), heavy (thorough)')
     args = parser.parse_args()
     
     log("\n" + "#"*70)
@@ -492,7 +498,7 @@ def main():
     
     reflection_lm = dspy.LM(
         args.reflection_model,
-        temperature=0.7
+        temperature=0.4  # Lower temperature for more consistent prompt refinements
     )
     
     dspy.configure(lm=main_lm)
@@ -530,7 +536,8 @@ def main():
     # Step 2: GEPA Training
     if not args.skip_training:
         optimized_program, optimized_instructions = run_gepa_training(
-            train_set, val_set, main_lm, reflection_lm, args.num_threads, results_dir
+            train_set, val_set, main_lm, reflection_lm, args.num_threads, results_dir,
+            auto_mode=args.auto_mode
         )
         results_summary['instructions_path'] = os.path.join(results_dir, "optimized_instructions.txt")
     else:
