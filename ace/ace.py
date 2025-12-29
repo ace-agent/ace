@@ -94,7 +94,9 @@ class ACE:
     
     def _initialize_empty_playbook(self) -> str:
         """Initialize an empty playbook with standard sections."""
-        return """## STRATEGIES & INSIGHTS
+        return """## GENERAL
+
+## STRATEGIES & INSIGHTS
 
 ## FORMULAS & CALCULATIONS
 
@@ -415,6 +417,7 @@ class ACE:
             json.dump({
                 "test_results": test_results,
                 "error_log": test_error_log,
+                "playbook_used": playbook,
             }, f, indent=2)
         
         return test_results

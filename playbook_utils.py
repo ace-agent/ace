@@ -110,6 +110,9 @@ def apply_curator_operations(playbook_text, operations, next_id):
     current_section = "general"
     section_line_map = {}  # Track which line each section header is on
     
+    # Initialize 'general' section for any content before first ## header
+    sections["general"] = []
+    
     for i, line in enumerate(lines):
         if line.strip().startswith('##'):
             # Extract section name and normalize it
@@ -146,7 +149,7 @@ def apply_curator_operations(playbook_text, operations, next_id):
             section = section_raw.lower().replace(' ', '_').replace('&', 'and')
             
             # Check if section exists, if not use 'others'
-            if section not in sections and section != 'general':
+            if section not in sections:
                 print(f"Warning: Section '{section_raw}' not found, adding to OTHERS")
                 section = 'others'
             
@@ -162,56 +165,73 @@ def apply_curator_operations(playbook_text, operations, next_id):
             
 
     
-    # Rebuild playbook
-    new_lines = []
+    # Rebuild playbook with proper section organization
+    # First, collect all existing content by section
+    existing_by_section = {}
+    current_section = "general"
+    
     for line in lines:
-        parsed = parse_playbook_line(line)
-        if parsed:
-            new_lines.append(line)
-        else:
-            new_lines.append(line)
-    
-    # Add new bullets to appropriate sections
-    final_lines = []
-    current_section = None
-    
-    for line in new_lines:
         if line.strip().startswith('##'):
-            # Before moving to new section, add any bullets for current section
-            if current_section:
-                section_adds = [b for s, b in bullets_to_add if s == current_section]
-                final_lines.extend(section_adds)
-                # Clear added bullets
-                bullets_to_add = [(s, b) for s, b in bullets_to_add if s != current_section]
-            
             section_header = line.strip()[2:].strip()
             current_section = section_header.lower().replace(' ', '_').replace('&', 'and')
-        final_lines.append(line)
+            if current_section not in existing_by_section:
+                existing_by_section[current_section] = []
+        elif line.strip():
+            if current_section not in existing_by_section:
+                existing_by_section[current_section] = []
+            existing_by_section[current_section].append(line)
     
-    # Add remaining bullets to current section
-    if current_section:
-        section_adds = [b for s, b in bullets_to_add if s == current_section]
-        final_lines.extend(section_adds)
-        bullets_to_add = [(s, b) for s, b in bullets_to_add if s != current_section]
+    # Add new bullets to appropriate sections
+    for section, bullet in bullets_to_add:
+        if section not in existing_by_section:
+            # If section doesn't exist, add to 'others'
+            print(f"Warning: Section '{section}' not found, adding to others")
+            section = 'others'
+        if section not in existing_by_section:
+            existing_by_section[section] = []
+        existing_by_section[section].append(bullet)
     
-    # If there are still bullets to add (for sections that don't exist), add them to OTHERS
-    if bullets_to_add:
-        print(f"Warning: {len(bullets_to_add)} bullets have no matching section, adding to OTHERS")
-        others_bullets = [b for s, b in bullets_to_add]
-        # Find OTHERS section
-        others_idx = -1
-        for i, line in enumerate(final_lines):
-            if line.strip() == "## OTHERS":
-                others_idx = i
-                break
-        
-        if others_idx >= 0:
-            # Insert after OTHERS header
-            for i, bullet in enumerate(others_bullets):
-                final_lines.insert(others_idx + 1 + i, bullet)
-        else:
-            # Append to end
-            final_lines.extend(others_bullets)
+    # Define section order (general first, others last)
+    # Includes both default ACE sections and banking-specific sections
+    section_order = [
+        "general",
+        # Banking-specific sections
+        "classification_principles",
+        "category_disambiguation", 
+        "banking_domain_knowledge",
+        "common_patterns",
+        "handling_ambiguous_queries",
+        # Default ACE sections
+        "strategies_and_insights",
+        "formulas_and_calculations",
+        "code_snippets_and_templates",
+        "common_mistakes_to_avoid",
+        "problem-solving_heuristics",
+        "problem_solving_heuristics",
+        "context_clues_and_indicators",
+        "others"
+    ]
+    
+    # Build final playbook
+    final_lines = []
+    processed_sections = set()
+    
+    # First, process sections in defined order
+    for section in section_order:
+        if section in existing_by_section and section not in processed_sections:
+            # Add section header
+            header_name = section.upper().replace('_', ' ').replace('AND', '&')
+            final_lines.append(f"## {header_name}")
+            final_lines.extend(existing_by_section[section])
+            processed_sections.add(section)
+    
+    # Then add any remaining sections not in the predefined order
+    for section in existing_by_section:
+        if section not in processed_sections:
+            header_name = section.upper().replace('_', ' ').replace('AND', '&')
+            final_lines.append(f"## {header_name}")
+            final_lines.extend(existing_by_section[section])
+            processed_sections.add(section)
     
     return '\n'.join(final_lines), next_id
 

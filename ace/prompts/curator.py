@@ -43,12 +43,15 @@ Output ONLY a valid JSON object with these exact fields:
 - reasoning: your chain of thought / reasoning / thinking process, detailed analysis and calculations
 - operations: a list of operations to be performed on the playbook
   - type: the type of operation to be performed
-  - section: the section to add the bullet to
+  - section: the section to add the bullet to (MUST be one of the available sections listed below)
   - content: the new content of the bullet
+
+**Available Sections (use these EXACT names):**
+{available_sections}
 
 **Available Operations:**
 1. ADD: Create new bullet points with fresh IDs
-    - section: the section to add the new bullet to
+    - section: MUST be one of the exact section names from the list above
     - content: the new content of the bullet. Note: no need to include the bullet_id in the content like '[ctx-00263] helpful=1 harmful=0 ::', the bullet_id will be added by the system.
 
 **RESPONSE FORMAT - Output ONLY this JSON structure (no markdown, no code blocks):**
@@ -57,8 +60,8 @@ Output ONLY a valid JSON object with these exact fields:
   "operations": [
     {{
       "type": "ADD", 
-      "section": "formulas_and_calculations",
-      "content": "[New calculation method...]"
+      "section": "others",
+      "content": "[New insight...]"
     }}
   ]
 }}
@@ -106,12 +109,15 @@ Output ONLY a valid JSON object with these exact fields:
 - reasoning: your chain of thought / reasoning / thinking process, detailed analysis and calculations
 - operations: a list of operations to be performed on the playbook
   - type: the type of operation to be performed
-  - section: the section to add the bullet to
+  - section: the section to add the bullet to (MUST be one of the available sections listed below)
   - content: the new content of the bullet
+
+**Available Sections (use these EXACT names):**
+{available_sections}
 
 **Available Operations:**
 1. ADD: Create new bullet points with fresh IDs
-    - section: the section to add the new bullet to
+    - section: MUST be one of the exact section names from the list above
     - content: the new content of the bullet. Note: no need to include the bullet_id in the content like '[ctx-00263] helpful=1 harmful=0 ::', the bullet_id will be added by the system.
 
 **RESPONSE FORMAT - Output ONLY this JSON structure (no markdown, no code blocks):**
@@ -120,8 +126,8 @@ Output ONLY a valid JSON object with these exact fields:
   "operations": [
     {{
       "type": "ADD", 
-      "section": "formulas_and_calculations",
-      "content": "[New calculation method...]"
+      "section": "others",
+      "content": "[New insight...]"
     }}
   ]
 }}

@@ -58,6 +58,7 @@ def get_section_slug(section_name):
     """Convert section name to slug format (3-5 chars)"""
     # Common section mappings - updated to match original sections
     slug_map = {
+        "general": "gen",
         "financial_strategies_and_insights": "fin",
         "formulas_and_calculations": "calc",
         "code_snippets_and_templates": "code",
@@ -65,7 +66,13 @@ def get_section_slug(section_name):
         "problem_solving_heuristics": "prob",
         "context_clues_and_indicators": "ctx",
         "others": "misc",
-        "meta_strategies": "meta"
+        "meta_strategies": "meta",
+        # Banking-specific sections
+        "classification_principles": "cls",
+        "category_disambiguation": "dis",
+        "banking_domain_knowledge": "bank",
+        "common_patterns": "pat",
+        "handling_ambiguous_queries": "amb",
     }
     
     # Clean and convert to snake_case

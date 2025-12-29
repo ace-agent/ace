@@ -32,6 +32,30 @@ class Curator:
         self.model = model
         self.max_tokens = max_tokens
     
+    def _extract_sections_from_playbook(self, playbook: str) -> List[str]:
+        """
+        Extract section names from the playbook.
+        
+        Args:
+            playbook: The playbook text
+            
+        Returns:
+            List of section names (lowercase with underscores)
+        """
+        sections = []
+        for line in playbook.split('\n'):
+            if line.strip().startswith('##'):
+                # Extract section name and normalize it
+                section_header = line.strip()[2:].strip()
+                section_name = section_header.lower().replace(' ', '_').replace('&', 'and')
+                sections.append(section_name)
+        
+        # If no sections found, return default sections
+        if not sections:
+            sections = ["general", "others"]
+        
+        return sections
+    
     def curate(
         self,
         current_playbook: str,
@@ -70,6 +94,10 @@ class Curator:
         # Format playbook stats as JSON string
         stats_str = json.dumps(playbook_stats, indent=2)
         
+        # Extract available sections from playbook
+        available_sections = self._extract_sections_from_playbook(current_playbook)
+        sections_str = "\n".join(f"- {section}" for section in available_sections)
+        
         # Select the appropriate prompt
         if use_ground_truth:
             prompt = CURATOR_PROMPT.format(
@@ -79,7 +107,8 @@ class Curator:
                 playbook_stats=stats_str,
                 recent_reflection=recent_reflection,
                 current_playbook=current_playbook,
-                question_context=question_context
+                question_context=question_context,
+                available_sections=sections_str
             )
         else:
             prompt = CURATOR_PROMPT_NO_GT.format(
@@ -89,7 +118,8 @@ class Curator:
                 playbook_stats=stats_str,
                 recent_reflection=recent_reflection,
                 current_playbook=current_playbook,
-                question_context=question_context
+                question_context=question_context,
+                available_sections=sections_str
             )
         
         # Make the LLM call
