@@ -189,8 +189,8 @@ def run_ace_training(ace_system, train_samples, val_samples, test_samples, proce
     config = {
         'num_epochs': 1,
         'max_num_rounds': 3,  # Max reflection rounds per sample
-        'curator_frequency': 1,  # Run curator every step
-        'eval_steps': max(len(train_samples) // 10, 10),  # Evaluate 4 times during training
+        'curator_frequency': 5,  # Run curator every step
+        'eval_steps': max(len(train_samples) // 10, 10),  # Evaluate 10 times during training
         'save_steps': max(len(train_samples) // 10, 10),
         'playbook_token_budget': 80000,
         'task_name': 'banking_ace',
@@ -341,7 +341,7 @@ def main():
         generator_model=args.generator_model,
         reflector_model=args.reflector_model,
         curator_model=args.curator_model,
-        max_tokens=2048,
+        max_tokens=4096,
         initial_playbook=BANKING_PLAYBOOK_TEMPLATE,
         use_bulletpoint_analyzer=True,
         bulletpoint_analyzer_threshold=0.9,
