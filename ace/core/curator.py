@@ -17,7 +17,7 @@ class Curator:
     merging, and deleting bullets based on reflection feedback.
     """
     
-    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096):
+    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096, temperature: float = 0.0):
         """
         Initialize the Curator agent.
         
@@ -26,11 +26,13 @@ class Curator:
             api_provider: API provider for LLM calls
             model: Model name to use for curation
             max_tokens: Maximum tokens for curation
+            temperature: Temperature for generation (0.0 to 1.0)
         """
         self.api_client = api_client
         self.api_provider = api_provider
         self.model = model
         self.max_tokens = max_tokens
+        self.temperature = temperature
     
     def _extract_sections_from_playbook(self, playbook: str) -> List[str]:
         """
@@ -132,7 +134,8 @@ class Curator:
             call_id=call_id,
             max_tokens=self.max_tokens,
             log_dir=log_dir,
-            use_json_mode=use_json_mode
+            use_json_mode=use_json_mode,
+            temperature=self.temperature
         )
         
         # Check for empty response error

@@ -9,8 +9,10 @@ This script runs the full workflow:
 
 Usage:
     export ANTHROPIC_API_KEY="your-api-key"
-    cd /path/to/ace
-    python3 -m banking.run_ace_workflow
+    cd /path/to/prompt_optimisation_gepa_ace
+    source .venv/bin/activate
+    cd ace
+    python -m banking.run_ace_workflow
 
 Options:
     --skip-baseline     Skip initial baseline evaluation
@@ -341,7 +343,11 @@ def main():
         curator_model=args.curator_model,
         max_tokens=2048,
         initial_playbook=BANKING_PLAYBOOK_TEMPLATE,
-        use_bulletpoint_analyzer=False
+        use_bulletpoint_analyzer=True,
+        bulletpoint_analyzer_threshold=0.9,
+        generator_temperature=0.1,
+        reflector_temperature=0.7,
+        curator_temperature=0.7
     )
     
     # Results tracking

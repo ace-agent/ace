@@ -237,7 +237,7 @@ class DataProcessor:
         """
         Check if the predicted topic matches the ground truth.
         
-        Uses normalized comparison to handle minor variations.
+        Uses simple case-insensitive comparison for consistency with GEPA metric.
         
         Args:
             predicted: Model's predicted topic
@@ -246,19 +246,7 @@ class DataProcessor:
         Returns:
             bool: True if prediction is correct, False otherwise
         """
-        pred_normalized = normalize_topic(predicted)
-        gt_normalized = normalize_topic(ground_truth)
-        
-        # Exact match after normalization
-        if pred_normalized == gt_normalized:
-            return True
-        
-        # Check if prediction contains the ground truth or vice versa
-        # (handles cases like "declined_card_payment" vs "declined card payment")
-        if pred_normalized in gt_normalized or gt_normalized in pred_normalized:
-            return True
-        
-        return False
+        return predicted.lower() == ground_truth.lower()
     
     def evaluate_accuracy(self, predictions: List[str], ground_truths: List[str]) -> float:
         """

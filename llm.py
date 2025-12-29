@@ -13,7 +13,7 @@ import openai
 from logger import log_llm_call, log_problematic_request
 
 
-def _call_anthropic_api(client, model, prompt, max_tokens, use_json_mode):
+def _call_anthropic_api(client, model, prompt, max_tokens, use_json_mode, temperature=0.0):
     """
     Make an API call to Anthropic's Claude models.
     
@@ -23,6 +23,7 @@ def _call_anthropic_api(client, model, prompt, max_tokens, use_json_mode):
         prompt: Text prompt to send
         max_tokens: Maximum tokens to generate
         use_json_mode: Whether to request JSON output (handled via system prompt)
+        temperature: Temperature for generation (0.0 to 1.0)
         
     Returns:
         Response object with normalized structure
@@ -31,7 +32,7 @@ def _call_anthropic_api(client, model, prompt, max_tokens, use_json_mode):
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "temperature": 0.0,
+        "temperature": temperature,
     }
     
     # Anthropic doesn't have a native JSON mode, but we can instruct via system prompt
@@ -56,7 +57,7 @@ def _call_anthropic_api(client, model, prompt, max_tokens, use_json_mode):
     return NormalizedResponse(response), api_params
 
 
-def _call_openai_compatible_api(client, api_provider, model, prompt, max_tokens, use_json_mode):
+def _call_openai_compatible_api(client, api_provider, model, prompt, max_tokens, use_json_mode, temperature=0.0):
     """
     Make an API call to OpenAI or OpenAI-compatible APIs (SambaNova, Together).
     
@@ -67,6 +68,7 @@ def _call_openai_compatible_api(client, api_provider, model, prompt, max_tokens,
         prompt: Text prompt to send
         max_tokens: Maximum tokens to generate
         use_json_mode: Whether to use JSON mode
+        temperature: Temperature for generation (0.0 to 1.0)
         
     Returns:
         Response object and api_params dict
@@ -79,7 +81,7 @@ def _call_openai_compatible_api(client, api_provider, model, prompt, max_tokens,
     api_params = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
+        "temperature": temperature,
         max_tokens_key: max_tokens
     }
     
@@ -92,7 +94,7 @@ def _call_openai_compatible_api(client, api_provider, model, prompt, max_tokens,
 
 
 def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_tokens=4096, log_dir=None,
-                   sleep_seconds=15, retries_on_timeout=1000, attempt=1, use_json_mode=False):
+                   sleep_seconds=15, retries_on_timeout=1000, attempt=1, use_json_mode=False, temperature=0.0):
     """
     Make a timed LLM call with error handling and retry logic.
     
@@ -116,6 +118,7 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
         retries_on_timeout: Maximum number of retries for timeouts/rate limits/empty responses
         attempt: Current attempt number (for recursive calls)
         use_json_mode: Whether to use JSON mode for structured output
+        temperature: Temperature for generation (0.0 to 1.0)
     
     Returns:
         tuple: (response_text, call_info_dict)
@@ -141,11 +144,11 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
             call_start = time.time()
             if api_provider == "anthropic":
                 response, api_params = _call_anthropic_api(
-                    active_client, model, prompt, max_tokens, use_json_mode
+                    active_client, model, prompt, max_tokens, use_json_mode, temperature
                 )
             else:
                 response, api_params = _call_openai_compatible_api(
-                    active_client, api_provider, model, prompt, max_tokens, use_json_mode
+                    active_client, api_provider, model, prompt, max_tokens, use_json_mode, temperature
                 )
             call_end = time.time()
             

@@ -39,7 +39,10 @@ class ACE:
         max_tokens: int = 4096,
         initial_playbook: Optional[str] = None,
         use_bulletpoint_analyzer: bool = False,
-        bulletpoint_analyzer_threshold: float = 0.90
+        bulletpoint_analyzer_threshold: float = 0.90,
+        generator_temperature: float = 0.0,
+        reflector_temperature: float = 0.0,
+        curator_temperature: float = 0.0
     ):
         """
         Initialize the ACE system.
@@ -53,14 +56,17 @@ class ACE:
             initial_playbook: Initial playbook content (optional)
             use_bulletpoint_analyzer: Whether to use bulletpoint analyzer for deduplication
             bulletpoint_analyzer_threshold: Similarity threshold for bulletpoint analyzer (0-1)
+            generator_temperature: Temperature for generator (0.0 to 1.0)
+            reflector_temperature: Temperature for reflector (0.0 to 1.0)
+            curator_temperature: Temperature for curator (0.0 to 1.0)
         """
         # Initialize API clients
         generator_client, reflector_client, curator_client = initialize_clients(api_provider)
 
         # Initialize the three agents
-        self.generator = Generator(generator_client, api_provider, generator_model, max_tokens)
-        self.reflector = Reflector(reflector_client, api_provider, reflector_model, max_tokens)
-        self.curator = Curator(curator_client, api_provider, curator_model, max_tokens)
+        self.generator = Generator(generator_client, api_provider, generator_model, max_tokens, generator_temperature)
+        self.reflector = Reflector(reflector_client, api_provider, reflector_model, max_tokens, reflector_temperature)
+        self.curator = Curator(curator_client, api_provider, curator_model, max_tokens, curator_temperature)
         
         # Initialize bulletpoint analyzer if requested and available
         self.use_bulletpoint_analyzer = use_bulletpoint_analyzer

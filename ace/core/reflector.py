@@ -15,7 +15,7 @@ class Reflector:
     bullets as helpful, harmful, or neutral.
     """
     
-    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096):
+    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096, temperature: float = 0.0):
         """
         Initialize the Reflector agent.
         
@@ -24,11 +24,13 @@ class Reflector:
             api_provider: API provider for LLM calls
             model: Model name to use for reflection
             max_tokens: Maximum tokens for reflection
+            temperature: Temperature for generation (0.0 to 1.0)
         """
         self.api_client = api_client
         self.api_provider = api_provider
         self.model = model
         self.max_tokens = max_tokens
+        self.temperature = temperature
     
     def reflect(
         self,
@@ -89,7 +91,8 @@ class Reflector:
             call_id=call_id,
             max_tokens=self.max_tokens,
             log_dir=log_dir,
-            use_json_mode=use_json_mode
+            use_json_mode=use_json_mode,
+            temperature=self.temperature
         )
         
         # Extract bullet tags

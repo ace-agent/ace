@@ -9,8 +9,10 @@ This script runs the full GEPA workflow:
 
 Usage:
     export ANTHROPIC_API_KEY="your-api-key"
-    cd /path/to/ace
-    python3 -m banking.run_gepa_workflow
+    cd /path/to/prompt_optimisation_gepa_ace
+    source .venv/bin/activate
+    cd ace
+    python -m banking.run_gepa_workflow
 
 Options:
     --skip-baseline     Skip initial baseline evaluation
@@ -460,14 +462,12 @@ def main():
                         help='Limit training samples (for faster testing)')
     parser.add_argument('--max-test', type=int, default=None,
                         help='Limit test samples (for faster testing)')
-    parser.add_argument('--main-model', type=str, default='anthropic/claude-haiku-4-5-20251001',
+    parser.add_argument('--main-model', type=str, default='anthropic/claude-haiku-4-5',
                         help='Model to use for main LM')
-    parser.add_argument('--reflection-model', type=str, default='anthropic/claude-opus-4-5',
+    parser.add_argument('--reflection-model', type=str, default='anthropic/claude-sonnet-4-5',
                         help='Model to use for reflection LM')
     parser.add_argument('--num-threads', type=int, default=16,
                         help='Number of threads for parallel evaluation')
-    parser.add_argument('--temperature', type=float, default=0.7,
-                        help='Temperature for LM')
     args = parser.parse_args()
     
     log("\n" + "#"*70)
@@ -484,16 +484,15 @@ def main():
     log(f"\n🤖 Initializing DSPy LMs...")
     log(f"  - Main model: {args.main_model}")
     log(f"  - Reflection model: {args.reflection_model}")
-    log(f"  - Temperature: {args.temperature}")
     
     main_lm = dspy.LM(
         args.main_model,
-        temperature=args.temperature
+        temperature=0.1
     )
     
     reflection_lm = dspy.LM(
         args.reflection_model,
-        temperature=args.temperature
+        temperature=0.7
     )
     
     dspy.configure(lm=main_lm)
