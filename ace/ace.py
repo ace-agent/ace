@@ -468,6 +468,8 @@ class ACE:
         question = task_dict.get("question", "")
         context = task_dict.get("context", "")
         target = task_dict.get("target", "")
+        others = task_dict.get("others", {})
+        reference_solution = others.get("reference_solution", "")
         
         # STEP 1: Initial generation (pre-train)
         print("Generating initial answer...")
@@ -515,13 +517,22 @@ class ACE:
                     self.playbook, bullet_ids
                 )
                 
+                # Build environment feedback (include reference solution if available)
+                env_feedback = "Predicted answer does not match ground truth."
+                if reference_solution:
+                    env_feedback += (
+                        f"\n\nHere's the reference solution:\n{reference_solution}\n\n"
+                        f"Think about what takeaways you can learn from this solution to improve "
+                        f"future answers and approach to similar problems."
+                    )
+                
                 # Reflect on error
                 reflection_content, bullet_tags, _ = self.reflector.reflect(
                     question=question,
                     reasoning_trace=gen_response,
                     predicted_answer=final_answer,
                     ground_truth=target if not no_ground_truth else None,
-                    environment_feedback="Predicted answer does not match ground truth",
+                    environment_feedback=env_feedback,
                     bullets_used=playbook_bullets,
                     use_ground_truth=not no_ground_truth,
                     use_json_mode=use_json_mode,
@@ -698,12 +709,15 @@ class ACE:
             epoch_targets_pre_train = []
             epoch_answers_post_train = []
             epoch_targets_post_train = []
+            epoch_test_lists = []  # For coding tasks
             
             for step, task_dict in enumerate(train_samples):
                 step += 1
                 print(f"\n--- Step {step}/{len(train_samples)} ---")
                 
                 target = task_dict.get("target", "")
+                # Get test_list for coding tasks
+                test_list = task_dict.get("others", {}).get("test_list", [])
                 
                 # Use helper method for training single sample
                 pre_train_answer, post_train_answer, tracking_dict = self._train_single_sample(
@@ -723,6 +737,7 @@ class ACE:
                 epoch_targets_pre_train.append(target)
                 epoch_answers_post_train.append(post_train_answer)
                 epoch_targets_post_train.append(target)
+                epoch_test_lists.append(test_list)
                 
                 # Track pre-train and post-train results
                 pre_train_post_train_result = {
@@ -748,12 +763,22 @@ class ACE:
                     print(f"{'='*40}")
                     
                     # Compute training accuracies
-                    pre_train_accuracy = data_processor.evaluate_accuracy(
-                        epoch_answers_pre_train, epoch_targets_pre_train
-                    )
-                    post_train_accuracy = data_processor.evaluate_accuracy(
-                        epoch_answers_post_train, epoch_targets_post_train
-                    )
+                    # Try with test_lists for coding tasks, fallback for other tasks
+                    try:
+                        pre_train_accuracy = data_processor.evaluate_accuracy(
+                            epoch_answers_pre_train, epoch_targets_pre_train, epoch_test_lists
+                        )
+                        post_train_accuracy = data_processor.evaluate_accuracy(
+                            epoch_answers_post_train, epoch_targets_post_train, epoch_test_lists
+                        )
+                    except TypeError:
+                        # Fallback for tasks that don't use test_lists
+                        pre_train_accuracy = data_processor.evaluate_accuracy(
+                            epoch_answers_pre_train, epoch_targets_pre_train
+                        )
+                        post_train_accuracy = data_processor.evaluate_accuracy(
+                            epoch_answers_post_train, epoch_targets_post_train
+                        )
                     
                     # Validation evaluation
                     val_results = {}
@@ -1014,6 +1039,7 @@ class ACE:
             epoch_targets_pre_train = []
             epoch_answers_post_train = []
             epoch_targets_post_train = []
+            epoch_test_lists = []  # For coding tasks
             
             for local_step, task_dict in enumerate(window_samples):
                 global_step += 1
@@ -1023,6 +1049,8 @@ class ACE:
                       f"(Global step {global_step}) ---")
                 
                 target = task_dict.get("target", "")
+                # Get test_list for coding tasks
+                test_list = task_dict.get("others", {}).get("test_list", [])
                 
                 # Use helper method for training single sample
                 pre_train_answer, post_train_answer, tracking_dict = self._train_single_sample(
@@ -1042,6 +1070,7 @@ class ACE:
                 epoch_targets_pre_train.append(target)
                 epoch_answers_post_train.append(post_train_answer)
                 epoch_targets_post_train.append(target)
+                epoch_test_lists.append(test_list)
                 
                 # Track pre-train and post-train results
                 pre_train_post_train_result = {
@@ -1061,12 +1090,22 @@ class ACE:
                         f.write(self.playbook)
             
             # End of window - compute training accuracies for this window
-            pre_train_accuracy = data_processor.evaluate_accuracy(
-                epoch_answers_pre_train, epoch_targets_pre_train
-            )
-            post_train_accuracy = data_processor.evaluate_accuracy(
-                epoch_answers_post_train, epoch_targets_post_train
-            )
+            # Try with test_lists for coding tasks, fallback for other tasks
+            try:
+                pre_train_accuracy = data_processor.evaluate_accuracy(
+                    epoch_answers_pre_train, epoch_targets_pre_train, epoch_test_lists
+                )
+                post_train_accuracy = data_processor.evaluate_accuracy(
+                    epoch_answers_post_train, epoch_targets_post_train, epoch_test_lists
+                )
+            except TypeError:
+                # Fallback for tasks that don't use test_lists
+                pre_train_accuracy = data_processor.evaluate_accuracy(
+                    epoch_answers_pre_train, epoch_targets_pre_train
+                )
+                post_train_accuracy = data_processor.evaluate_accuracy(
+                    epoch_answers_post_train, epoch_targets_post_train
+                )
             
             window_train_result = {
                 "window": window_idx + 1,

@@ -185,6 +185,8 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
         context = task_dict["context"]
         question = task_dict["question"]
         target = task_dict["target"]
+        # Get test_list for coding tasks
+        test_list = task_dict.get("others", {}).get("test_list", None)
 
         gen_response, bullet_ids, call_info = generator.generate(
             question=question,
@@ -197,7 +199,11 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
         )
 
         final_answer = extract_answer(gen_response)
-        is_correct = data_processor.answer_is_correct(final_answer, target)
+        # Pass test_list for coding tasks (will be ignored by other tasks)
+        if test_list is not None:
+            is_correct = data_processor.answer_is_correct(final_answer, target, test_list)
+        else:
+            is_correct = data_processor.answer_is_correct(final_answer, target)
 
         return {
             "index": i,
@@ -241,7 +247,7 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
 
     results = {
         "correct": 0, "total": 0, "no_answer": 0,
-        "answers": [], "targets": [], "errors": []
+        "answers": [], "targets": [], "errors": [], "test_lists": []
     }
 
     # Use a wrapper to pass data_processor to the evaluation function
@@ -266,6 +272,19 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
                 results["total"] += 1
                 results["answers"].append(result["final_answer"])
                 results["targets"].append(result["target"])
+                # For coding: collect test_list from the sample
+                # Find the original sample index
+                idx = result["index"]
+                if idx < len(test_samples):
+                    # test_list is in test_samples[idx]["others"]["test_list"]
+                    test_list = []
+                    try:
+                        test_list = test_samples[idx]["others"]["test_list"]
+                    except Exception:
+                        test_list = []
+                    results["test_lists"].append(test_list)
+                else:
+                    results["test_lists"].append([])
                 
                 if not result["is_correct"]:
                     results["errors"].append({
@@ -282,11 +301,36 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
                 print(f"Progress: {i}/{len(args_list)}, Accuracy: {curr_acc:.3f}")
     
     if results["answers"] and results["targets"]:
-        accuracy = data_processor.evaluate_accuracy(results["answers"], results["targets"])
+        # For coding, pass test_lists if available
+        if hasattr(data_processor, "evaluate_accuracy") and "test_lists" in results:
+            try:
+                # Try to pass save_dir for detailed logging
+                accuracy = data_processor.evaluate_accuracy(
+                    results["answers"], 
+                    results["targets"], 
+                    results["test_lists"],
+                    save_dir=log_dir
+                )
+            except TypeError:
+                # Fallback for other tasks that don't support save_dir
+                try:
+                    accuracy = data_processor.evaluate_accuracy(
+                        results["answers"], 
+                        results["targets"], 
+                        results["test_lists"]
+                    )
+                except TypeError:
+                    # Fallback for other tasks without test_lists
+                    accuracy = data_processor.evaluate_accuracy(results["answers"], results["targets"])
+        else:
+            accuracy = data_processor.evaluate_accuracy(results["answers"], results["targets"])
+        
+        # Recalculate correct count from accuracy to ensure consistency
+        correct_count = round(accuracy * results["total"])
         
         final_results = {
             "accuracy": accuracy,
-            "correct": results["correct"],
+            "correct": correct_count,
             "total": results["total"],
             "no_answer": results["no_answer"]
         }
@@ -296,7 +340,7 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
             "errors": results["errors"]
         }
         
-        print(f"\n📊 Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
+        print(f"\n📊 Final Accuracy: {accuracy:.3f} ({correct_count}/{results['total']})")
     else:
         results = {"accuracy": 0.0, "correct": 0, "total": 0}
         error_logs = {}
