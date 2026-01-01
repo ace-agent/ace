@@ -66,99 +66,6 @@ def load_data(data_path: str) -> List[Dict[str, Any]]:
     return data
 
 
-def normalize_topic(topic: str) -> str:
-    """
-    Normalize a topic string for comparison.
-    
-    Handles common variations:
-    - Case insensitivity
-    - Extra whitespace
-    - Underscores vs spaces
-    - Common typos
-    """
-    if not topic:
-        return ""
-    
-    # Basic normalization
-    topic = topic.strip().lower()
-    
-    # Replace spaces with underscores for consistency
-    topic = topic.replace(' ', '_')
-    
-    # Remove common wrapper text that models might add
-    for prefix in ['the topic is ', 'topic: ', 'category: ', 'answer: ']:
-        if topic.startswith(prefix):
-            topic = topic[len(prefix):]
-    
-    # Remove quotes if present
-    topic = topic.strip('"\'')
-    
-    return topic
-
-
-def extract_topic_from_response(response: str) -> str:
-    """
-    Extract the topic from a model response.
-    
-    The model might return the topic in various formats:
-    - Just the topic name
-    - "The topic is: topic_name"
-    - JSON format with topic field
-    - With explanation before/after
-    
-    Args:
-        response: Raw model response
-        
-    Returns:
-        Extracted and normalized topic
-    """
-    import json
-    
-    response = response.strip()
-    
-    # Try JSON parsing first
-    try:
-        parsed = json.loads(response)
-        if isinstance(parsed, dict):
-            for key in ['topic', 'category', 'answer', 'final_answer', 'result']:
-                if key in parsed:
-                    return normalize_topic(str(parsed[key]))
-    except (json.JSONDecodeError, KeyError):
-        pass
-    
-    # Try to find topic patterns
-    response_lower = response.lower()
-    
-    # Look for explicit answer patterns
-    for pattern in ['final answer:', 'answer:', 'topic:', 'category:', 'the topic is']:
-        if pattern in response_lower:
-            idx = response_lower.find(pattern) + len(pattern)
-            answer = response[idx:].strip().split('\n')[0].strip()
-            answer = answer.strip('.,!?:').strip()
-            return normalize_topic(answer)
-    
-    # If response is short (likely just the topic), use as-is
-    if len(response.strip()) < 100 and '\n' not in response.strip():
-        return normalize_topic(response)
-    
-    # Check if any allowed topic appears in the response
-    normalized_topics = {normalize_topic(t): t for t in ALLOWED_TOPICS}
-    
-    # First, try exact match at beginning of response
-    first_line = response.strip().split('\n')[0]
-    first_line_normalized = normalize_topic(first_line)
-    if first_line_normalized in normalized_topics:
-        return first_line_normalized
-    
-    # Look for any topic mention
-    for norm_topic, original_topic in normalized_topics.items():
-        if norm_topic in response_lower.replace(' ', '_'):
-            return norm_topic
-    
-    # Fallback: return first line normalized
-    return normalize_topic(response.strip().split('\n')[0])
-
-
 class DataProcessor:
     """
     Processor for handling banking customer support topic classification.
@@ -178,7 +85,6 @@ class DataProcessor:
         """
         self.task_name = task_name
         self.allowed_topics = ALLOWED_TOPICS
-        self.topic_set = set(normalize_topic(t) for t in ALLOWED_TOPICS)
     
     def process_task_data(self, raw_data: List[Dict]) -> List[Dict]:
         """
@@ -221,18 +127,6 @@ class DataProcessor:
         
         return processed_data
     
-    def extract_answer(self, response: str) -> str:
-        """
-        Extract the predicted topic from model response.
-        
-        Args:
-            response: Raw model response
-            
-        Returns:
-            Extracted topic string
-        """
-        return extract_topic_from_response(response)
-    
     def answer_is_correct(self, predicted: str, ground_truth: str) -> bool:
         """
         Check if the predicted topic matches the ground truth.
@@ -271,46 +165,3 @@ class DataProcessor:
         )
         
         return correct / len(predictions)
-    
-    def get_detailed_results(self, predictions: List[str], ground_truths: List[str]) -> Dict:
-        """
-        Get detailed evaluation results including per-topic accuracy.
-        
-        Args:
-            predictions: List of model predictions
-            ground_truths: List of ground truth topics
-            
-        Returns:
-            Dict with detailed metrics
-        """
-        results = {
-            'total': len(predictions),
-            'correct': 0,
-            'accuracy': 0.0,
-            'per_topic': {},
-            'confusion': []
-        }
-        
-        for pred, truth in zip(predictions, ground_truths):
-            is_correct = self.answer_is_correct(pred, truth)
-            
-            if is_correct:
-                results['correct'] += 1
-            
-            # Track per-topic stats
-            truth_norm = normalize_topic(truth)
-            if truth_norm not in results['per_topic']:
-                results['per_topic'][truth_norm] = {'total': 0, 'correct': 0}
-            
-            results['per_topic'][truth_norm]['total'] += 1
-            if is_correct:
-                results['per_topic'][truth_norm]['correct'] += 1
-            else:
-                results['confusion'].append({
-                    'ground_truth': truth,
-                    'predicted': pred
-                })
-        
-        results['accuracy'] = results['correct'] / results['total'] if results['total'] > 0 else 0.0
-        
-        return results
