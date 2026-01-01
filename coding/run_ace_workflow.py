@@ -2,10 +2,12 @@
 """
 Complete ACE workflow for Python Code Generation (MBPP dataset).
 
-This script runs the full workflow:
-1. Evaluate baseline (no playbook) on test set
-2. Train ACE to improve the prompt/playbook
-3. Evaluate with the best playbook from ACE
+This script runs ACE training which includes:
+- Initial evaluation (baseline, no playbook) on test set
+- Training to improve the prompt/playbook
+- Final evaluation with the best playbook
+
+Results are saved in training/ace_run.../initial_test_results.json and final_test_results.json
 
 Usage:
     export ANTHROPIC_API_KEY="your-api-key"
@@ -15,9 +17,6 @@ Usage:
     python -m coding.run_ace_workflow
 
 Options:
-    --skip-baseline     Skip initial baseline evaluation
-    --skip-training     Skip ACE training (use existing playbook)
-    --playbook PATH     Use existing playbook for final evaluation
     --max-train N       Limit training samples (for faster testing)
     --max-test N        Limit test samples (for faster testing)
 """
@@ -156,40 +155,10 @@ def load_coding_data(max_train=None, max_test=None):
     return train_samples, val_samples, test_samples, processor
 
 
-def run_baseline_evaluation(ace_system, test_samples, processor, results_dir):
-    """Step 1: Evaluate baseline (no playbook) on test set."""
-    log("\n" + "="*70)
-    log("STEP 1: BASELINE EVALUATION (No Playbook)")
-    log("="*70)
-    
-    config = {
-        'task_name': 'coding_baseline',
-        'save_dir': os.path.join(results_dir, "baseline"),
-        'test_workers': 10,
-        'json_mode': False,
-    }
-    
-    # Ensure empty playbook for baseline
-    ace_system.playbook = ""
-    ace_system.best_playbook = ""
-    
-    results = ace_system.run(
-        mode='eval_only',
-        test_samples=test_samples,
-        data_processor=processor,
-        config=config
-    )
-    
-    accuracy = results.get('test_results', {}).get('accuracy', 0)
-    log(f"\n📊 Baseline Test Accuracy: {accuracy:.4f} ({accuracy*100:.2f}%)")
-    
-    return accuracy, results
-
-
 def run_ace_training(ace_system, train_samples, val_samples, test_samples, processor, results_dir):
-    """Step 2: Train ACE to improve the playbook."""
+    """Train ACE to improve the playbook (includes initial and final evaluations)."""
     log("\n" + "="*70)
-    log("STEP 2: ACE TRAINING (Offline Mode)")
+    log("ACE TRAINING (Offline Mode)")
     log("="*70)
     log(f"Training on {len(train_samples)} samples, validating on {len(val_samples)}")
     
@@ -241,44 +210,8 @@ def run_ace_training(ace_system, train_samples, val_samples, test_samples, proce
     return ace_system.best_playbook, results
 
 
-def run_final_evaluation(ace_system, test_samples, processor, playbook, results_dir):
-    """Step 3: Evaluate with the best playbook from ACE."""
-    log("\n" + "="*70)
-    log("STEP 3: FINAL EVALUATION (With Best Playbook)")
-    log("="*70)
-    
-    # Set the playbook
-    ace_system.playbook = playbook
-    ace_system.best_playbook = playbook
-    
-    config = {
-        'task_name': 'coding_final',
-        'save_dir': os.path.join(results_dir, "final"),
-        'test_workers': 5,
-        'json_mode': False,
-    }
-    
-    results = ace_system.run(
-        mode='eval_only',
-        test_samples=test_samples,
-        data_processor=processor,
-        config=config
-    )
-    
-    accuracy = results.get('test_results', {}).get('accuracy', 0)
-    log(f"\n📊 Final Test Accuracy (with playbook): {accuracy:.4f} ({accuracy*100:.2f}%)")
-    
-    return accuracy, results
-
-
 def main():
     parser = argparse.ArgumentParser(description='ACE Coding Workflow (MBPP)')
-    parser.add_argument('--skip-baseline', action='store_true',
-                        help='Skip initial baseline evaluation')
-    parser.add_argument('--skip-training', action='store_true',
-                        help='Skip ACE training (use existing playbook)')
-    parser.add_argument('--playbook', type=str, default=None,
-                        help='Path to existing playbook for final evaluation')
     parser.add_argument('--max-train', type=int, default=None,
                         help='Limit training samples (for faster testing)')
     parser.add_argument('--max-test', type=int, default=None,
@@ -367,37 +300,15 @@ def main():
         'playbook_path': None
     }
 
+    # ACE Training (includes initial and final evaluations)
+    best_playbook, training_results = run_ace_training(
+        ace_system, train_samples, val_samples, test_samples, processor, results_dir
+    )
+    results_summary['playbook_path'] = os.path.join(results_dir, "best_playbook.txt")
     
-    # Step 1: Baseline evaluation
-    if not args.skip_baseline:
-        baseline_acc, _ = run_baseline_evaluation(
-            ace_system, test_samples, processor, results_dir
-        )
-        results_summary['baseline_accuracy'] = baseline_acc
-    else:
-        log("\n⏭️  Skipping baseline evaluation")
-    
-    # Step 2: ACE Training
-    if not args.skip_training:
-        best_playbook, training_results = run_ace_training(
-            ace_system, train_samples, val_samples, test_samples, processor, results_dir
-        )
-        results_summary['playbook_path'] = os.path.join(results_dir, "best_playbook.txt")
-    elif args.playbook:
-        log(f"\n📖 Loading existing playbook from: {args.playbook}")
-        with open(args.playbook, 'r') as f:
-            best_playbook = f.read()
-        results_summary['playbook_path'] = args.playbook
-    else:
-        log("\n⚠️  No playbook available for final evaluation!")
-        best_playbook = ""
-    
-    # Step 3: Final evaluation with playbook
-    if best_playbook:
-        final_acc, _ = run_final_evaluation(
-            ace_system, test_samples, processor, best_playbook, results_dir
-        )
-        results_summary['final_accuracy'] = final_acc
+    # Extract accuracies from training results
+    results_summary['baseline_accuracy'] = training_results.get('initial_test_results', {}).get('accuracy')
+    results_summary['final_accuracy'] = training_results.get('final_test_results', {}).get('accuracy')
     
     # Calculate improvement
     if results_summary['baseline_accuracy'] and results_summary['final_accuracy']:
