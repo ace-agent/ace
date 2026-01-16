@@ -135,7 +135,7 @@ class Curator:
             for op in operations:
                 try:
                     op_type = op.get('type', 'UNKNOWN') if isinstance(op, dict) else 'INVALID'
-                    op_reason = op.get('reason', 'No reason given') if isinstance(op, dict) else 'Invalid operation format'
+                    op_reason = op.get('content', 'No reason given') if isinstance(op, dict) else 'Invalid operation format'
                     print(f"  - {op_type}: {op_reason}")
                 except Exception as e:
                     print(f"  - UNKNOWN: Error logging operation: {e}")
