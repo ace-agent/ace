@@ -699,6 +699,25 @@ Different section.
         assert "Sibling Section" not in result
 
 
+@pytest.fixture
+async def test_api_key_with_write(async_session: AsyncSession, test_user: User):
+    """Create a test API key with playbooks:write scope."""
+    result = await create_api_key_async(
+        async_session,
+        test_user.id,
+        "Test MCP Key with Write",
+        scopes=[
+            "playbooks:read",
+            "playbooks:write",
+            "outcomes:write",
+            "evolution:write",
+            "evolution:read",
+        ],
+    )
+    await async_session.commit()
+    return result
+
+
 @pytestmark_integration
 class TestMCPToolsIntegration:
     """Integration tests for MCP tools with database."""
@@ -1121,6 +1140,239 @@ class TestMCPToolsIntegration:
         )
 
         assert "Error: Access denied" in result
+
+    async def test_create_playbook_success(
+        self, async_session: AsyncSession, test_api_key_with_write
+    ):
+        """Test creating a playbook with valid API key."""
+        from ace_platform.mcp.server import create_playbook
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_playbook(
+            name="New Playbook via MCP",
+            description="A playbook created via MCP tools",
+            initial_content="# My Playbook\n\n- Step 1\n- Step 2",
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Playbook created successfully" in result
+        assert "with version 1" in result
+        assert "ID:" in result
+
+    async def test_create_playbook_without_initial_content(
+        self, async_session: AsyncSession, test_api_key_with_write
+    ):
+        """Test creating a playbook without initial content."""
+        from ace_platform.mcp.server import create_playbook
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_playbook(
+            name="Empty Playbook",
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Playbook created successfully" in result
+        assert "with version" not in result  # No version should be created
+        assert "ID:" in result
+
+    async def test_create_playbook_no_scope(
+        self, async_session: AsyncSession, test_api_key
+    ):
+        """Test creating a playbook without write scope."""
+        from ace_platform.mcp.server import create_playbook
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_playbook(
+            name="Should Fail",
+            api_key=test_api_key.full_key,  # This key has only read scope
+            ctx=mock_ctx,
+        )
+
+        assert "Error: API key lacks 'playbooks:write' scope" in result
+
+    async def test_create_playbook_empty_name(
+        self, async_session: AsyncSession, test_api_key_with_write
+    ):
+        """Test creating a playbook with empty name."""
+        from ace_platform.mcp.server import create_playbook
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_playbook(
+            name="   ",  # Whitespace-only name
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Error:" in result
+        assert "required" in result.lower() or "empty" in result.lower()
+
+    async def test_create_version_success(
+        self, async_session: AsyncSession, test_playbook: Playbook, test_api_key_with_write
+    ):
+        """Test creating a new version with valid API key."""
+        from ace_platform.mcp.server import create_version
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_version(
+            playbook_id=str(test_playbook.id),
+            content="# Updated Playbook\n\n- New Step 1\n- New Step 2\n- New Step 3",
+            diff_summary="Added new step 3",
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Version" in result
+        assert "created successfully" in result
+        assert "ID:" in result
+
+    async def test_create_version_no_scope(
+        self, async_session: AsyncSession, test_playbook: Playbook, test_api_key
+    ):
+        """Test creating a version without write scope."""
+        from ace_platform.mcp.server import create_version
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_version(
+            playbook_id=str(test_playbook.id),
+            content="# New Content",
+            api_key=test_api_key.full_key,  # This key has only read scope
+            ctx=mock_ctx,
+        )
+
+        assert "Error: API key lacks 'playbooks:write' scope" in result
+
+    async def test_create_version_playbook_not_found(
+        self, async_session: AsyncSession, test_api_key_with_write
+    ):
+        """Test creating a version for non-existent playbook."""
+        from uuid import uuid4
+
+        from ace_platform.mcp.server import create_version
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_version(
+            playbook_id=str(uuid4()),
+            content="# Some Content",
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Error: Playbook" in result
+        assert "not found" in result
+
+    async def test_create_version_invalid_uuid(
+        self, async_session: AsyncSession, test_api_key_with_write
+    ):
+        """Test creating a version with invalid playbook ID."""
+        from ace_platform.mcp.server import create_version
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_version(
+            playbook_id="not-a-valid-uuid",
+            content="# Some Content",
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Error: Invalid playbook ID format" in result
+
+    async def test_create_version_empty_content(
+        self, async_session: AsyncSession, test_playbook: Playbook, test_api_key_with_write
+    ):
+        """Test creating a version with empty content."""
+        from ace_platform.mcp.server import create_version
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_version(
+            playbook_id=str(test_playbook.id),
+            content="   ",  # Whitespace-only content
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Error:" in result
+        assert "required" in result.lower() or "empty" in result.lower()
+
+    async def test_create_version_access_denied(
+        self, async_session: AsyncSession, test_playbook: Playbook
+    ):
+        """Test that users cannot create versions for other users' playbooks."""
+        from ace_platform.mcp.server import create_version
+
+        # Create a different user and API key
+        other_user = User(
+            email="other_version_user@example.com",
+            hashed_password="hashed_password_here",
+        )
+        async_session.add(other_user)
+        await async_session.commit()
+        await async_session.refresh(other_user)
+
+        other_key = await create_api_key_async(
+            async_session,
+            other_user.id,
+            "Other User Key",
+            scopes=["playbooks:write"],
+        )
+        await async_session.commit()
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        result = await create_version(
+            playbook_id=str(test_playbook.id),
+            content="# Trying to Update",
+            api_key=other_key.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Error: Access denied" in result
+
+    async def test_create_playbook_counts_ace_bullets(
+        self, async_session: AsyncSession, test_api_key_with_write
+    ):
+        """Test that ACE-format bullets are counted correctly."""
+        from ace_platform.mcp.server import create_playbook
+
+        mock_ctx = MagicMock()
+        mock_ctx.request_context.lifespan_context.db = async_session
+
+        ace_content = """# ACE Playbook
+
+[1] helpful=5 harmful=0 :: Always verify user input
+[2] helpful=3 harmful=1 :: Consider edge cases
+[3] helpful=10 harmful=0 :: Write tests first
+"""
+
+        result = await create_playbook(
+            name="ACE Format Playbook",
+            initial_content=ace_content,
+            api_key=test_api_key_with_write.full_key,
+            ctx=mock_ctx,
+        )
+
+        assert "Playbook created successfully" in result
+        assert "3 bullets" in result
 
 
 @pytestmark_integration

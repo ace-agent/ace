@@ -17,6 +17,7 @@ Authentication priority (first match wins):
 """
 
 import os
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -26,7 +27,8 @@ from uuid import UUID
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -35,8 +37,21 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from ace_platform.config import get_settings
 from ace_platform.core.api_keys import authenticate_api_key_async
 from ace_platform.core.rate_limit import RATE_LIMITS, RateLimiter
-from ace_platform.core.validation import validate_outcome_inputs
-from ace_platform.db.models import Outcome, OutcomeStatus, Playbook
+from ace_platform.core.validation import (
+    MAX_PLAYBOOK_DESCRIPTION_SIZE,
+    MAX_PLAYBOOK_NAME_SIZE,
+    validate_outcome_inputs,
+    validate_playbook_content,
+    validate_size,
+)
+from ace_platform.db.models import (
+    Outcome,
+    OutcomeStatus,
+    Playbook,
+    PlaybookSource,
+    PlaybookStatus,
+    PlaybookVersion,
+)
 from ace_platform.db.session import AsyncSessionLocal, close_async_db
 
 settings = get_settings()
@@ -405,6 +420,261 @@ async def list_playbooks(
             lines.append(f"  {pb.description[:100]}...")
 
     return "\n".join(lines)
+
+
+@mcp.tool()
+async def create_playbook(
+    name: Annotated[str, "Name for the playbook (max 255 chars)"],
+    ctx: Context,
+    api_key: Annotated[
+        str | None, "API key for authentication (optional if ACE_API_KEY env var is set)"
+    ] = None,
+    description: Annotated[str | None, "Description of the playbook (max 2000 chars)"] = None,
+    initial_content: Annotated[
+        str | None, "Initial playbook content in markdown (max 100KB)"
+    ] = None,
+) -> str:
+    """Create a new playbook.
+
+    Creates a new playbook with optional initial content. If initial_content
+    is provided, version 1 is created automatically.
+
+    Requires a valid API key with 'playbooks:write' scope.
+
+    Size limits:
+    - name: 255 characters max
+    - description: 2KB max
+    - initial_content: 100KB max
+
+    Args:
+        name: Name for the playbook.
+        api_key: API key for authentication (optional if ACE_API_KEY env var is set).
+        description: Optional description of the playbook.
+        initial_content: Optional initial content in markdown format.
+
+    Returns:
+        Success message with playbook ID, or error message.
+    """
+    from ace_platform.core.api_keys import check_scope
+    from ace_platform.core.limits import SubscriptionTier, get_tier_limits
+
+    db = get_db(ctx)
+
+    # Get API key from parameter or environment
+    resolved_api_key = get_api_key(api_key)
+    if not resolved_api_key:
+        return "Error: No API key provided. Set ACE_API_KEY environment variable or pass api_key parameter."
+
+    # Authenticate
+    auth_result = await authenticate_api_key_async(db, resolved_api_key)
+    if not auth_result:
+        return "Error: Invalid or revoked API key"
+
+    api_key_record, user = auth_result
+
+    # Check scope
+    if not check_scope(api_key_record, "playbooks:write"):
+        return "Error: API key lacks 'playbooks:write' scope"
+
+    # Validate inputs
+    error = validate_size(name, "Name", MAX_PLAYBOOK_NAME_SIZE)
+    if error:
+        return f"Error: {error}"
+
+    if not name or not name.strip():
+        return "Error: Name is required and cannot be empty"
+
+    if description:
+        error = validate_size(description, "Description", MAX_PLAYBOOK_DESCRIPTION_SIZE)
+        if error:
+            return f"Error: {error}"
+
+    if initial_content:
+        error = validate_playbook_content(initial_content)
+        if error:
+            return f"Error: {error}"
+
+    # Check max_playbooks limit for user's tier
+    user_tier = (
+        SubscriptionTier(user.subscription_tier)
+        if user.subscription_tier
+        else SubscriptionTier.FREE
+    )
+    limits = get_tier_limits(user_tier)
+
+    if limits.max_playbooks is not None:
+        # Count existing playbooks
+        count_query = select(func.count()).select_from(
+            select(Playbook).where(Playbook.user_id == user.id).subquery()
+        )
+        current_count = await db.scalar(count_query) or 0
+
+        if current_count >= limits.max_playbooks:
+            return (
+                f"Error: You have reached the maximum number of playbooks ({limits.max_playbooks}) "
+                f"for your {user_tier.value} subscription. Please upgrade to create more playbooks."
+            )
+
+    # Create playbook
+    playbook = Playbook(
+        user_id=user.id,
+        name=name.strip(),
+        description=description.strip() if description else None,
+        status=PlaybookStatus.ACTIVE,
+        source=PlaybookSource.USER_CREATED,
+    )
+    db.add(playbook)
+    await db.flush()
+
+    # Create initial version if content provided
+    version_info = ""
+    if initial_content:
+        # Count ACE-format bullets: [id] helpful=X harmful=Y :: content
+        ace_bullet_pattern = r"\[[^\]]+\]\s*helpful=\d+\s*harmful=\d+\s*::"
+        bullet_count = len(re.findall(ace_bullet_pattern, initial_content))
+
+        version = PlaybookVersion(
+            playbook_id=playbook.id,
+            version_number=1,
+            content=initial_content,
+            bullet_count=bullet_count,
+        )
+        db.add(version)
+        await db.flush()
+
+        playbook.current_version_id = version.id
+        version_info = f" with version 1 ({bullet_count} bullets)"
+
+    await db.commit()
+
+    return f"Playbook created successfully{version_info} (ID: {playbook.id})"
+
+
+@mcp.tool()
+async def create_version(
+    playbook_id: Annotated[str, "UUID of the playbook to create a version for"],
+    content: Annotated[str, "New version content in markdown (max 100KB)"],
+    ctx: Context,
+    api_key: Annotated[
+        str | None, "API key for authentication (optional if ACE_API_KEY env var is set)"
+    ] = None,
+    diff_summary: Annotated[str | None, "Brief description of changes (max 500 chars)"] = None,
+) -> str:
+    """Create a new version of a playbook.
+
+    Creates an immutable version with incremented version number.
+    The playbook's current_version is updated to point to the new version.
+
+    Requires a valid API key with 'playbooks:write' scope.
+
+    Size limits:
+    - content: 100KB max
+    - diff_summary: 500 characters max
+
+    Args:
+        playbook_id: UUID of the playbook to update.
+        content: New version content in markdown format.
+        api_key: API key for authentication (optional if ACE_API_KEY env var is set).
+        diff_summary: Optional brief description of what changed.
+
+    Returns:
+        Success message with version number, or error message.
+    """
+    from ace_platform.core.api_keys import check_scope
+
+    db = get_db(ctx)
+
+    # Get API key from parameter or environment
+    resolved_api_key = get_api_key(api_key)
+    if not resolved_api_key:
+        return "Error: No API key provided. Set ACE_API_KEY environment variable or pass api_key parameter."
+
+    # Authenticate
+    auth_result = await authenticate_api_key_async(db, resolved_api_key)
+    if not auth_result:
+        return "Error: Invalid or revoked API key"
+
+    api_key_record, user = auth_result
+
+    # Check scope
+    if not check_scope(api_key_record, "playbooks:write"):
+        return "Error: API key lacks 'playbooks:write' scope"
+
+    # Validate playbook ID
+    try:
+        pb_uuid = UUID(playbook_id)
+    except ValueError:
+        return f"Error: Invalid playbook ID format: {playbook_id}"
+
+    # Validate inputs
+    if not content or not content.strip():
+        return "Error: Content is required and cannot be empty"
+
+    error = validate_playbook_content(content)
+    if error:
+        return f"Error: {error}"
+
+    if diff_summary:
+        error = validate_size(diff_summary, "Diff summary", 500)
+        if error:
+            return f"Error: {error}"
+
+    # Get playbook and verify ownership
+    playbook = await db.get(Playbook, pb_uuid)
+    if not playbook:
+        return f"Error: Playbook {playbook_id} not found"
+
+    if playbook.user_id != user.id:
+        return "Error: Access denied - playbook belongs to another user"
+
+    # Calculate bullet count (done once, outside retry loop)
+    ace_bullet_pattern = r"\[[^\]]+\]\s*helpful=\d+\s*harmful=\d+\s*::"
+    bullet_count = len(re.findall(ace_bullet_pattern, content))
+
+    # Retry loop to handle race conditions on version_number
+    max_retries = 3
+    for attempt in range(max_retries):
+        # Get current max version number
+        max_version_query = select(func.max(PlaybookVersion.version_number)).where(
+            PlaybookVersion.playbook_id == pb_uuid
+        )
+        current_max = await db.scalar(max_version_query) or 0
+        new_version_number = current_max + 1
+
+        # Create new version
+        version = PlaybookVersion(
+            playbook_id=pb_uuid,
+            version_number=new_version_number,
+            content=content,
+            bullet_count=bullet_count,
+            diff_summary=diff_summary.strip() if diff_summary else None,
+            created_by_job_id=None,  # Manual edit, not from evolution job
+        )
+        db.add(version)
+
+        try:
+            await db.flush()
+            # Update playbook to point to new version
+            playbook.current_version_id = version.id
+            await db.commit()
+
+            return (
+                f"Version {new_version_number} created successfully "
+                f"({bullet_count} bullets) (ID: {version.id})"
+            )
+        except IntegrityError:
+            # Race condition: another request created this version number
+            # Rollback and retry with a fresh version number
+            await db.rollback()
+            # Re-fetch playbook after rollback (session state is cleared)
+            playbook = await db.get(Playbook, pb_uuid)
+            if not playbook:
+                return f"Error: Playbook {playbook_id} not found after rollback"
+            if attempt == max_retries - 1:
+                return "Error: Failed to create version due to concurrent modification. Please try again."
+
+    # This should never be reached due to the return in the loop
+    return "Error: Unexpected error creating version"
 
 
 @mcp.tool()
