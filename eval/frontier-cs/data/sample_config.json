@@ -1,0 +1,12 @@
+{
+  "algorithmic": {
+    "train_data": "./eval/frontier-cs/data/algorithmic_train.jsonl",
+    "val_data": "./eval/frontier-cs/data/algorithmic_val.jsonl",
+    "test_data": "./eval/frontier-cs/data/algorithmic_test.jsonl"
+  },
+  "research": {
+    "train_data": "./eval/frontier-cs/data/research_train.jsonl",
+    "val_data": "./eval/frontier-cs/data/research_val.jsonl",
+    "test_data": "./eval/frontier-cs/data/research_test.jsonl"
+  }
+}
