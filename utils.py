@@ -5,7 +5,7 @@ import json
 import openai
 import tiktoken
 from dotenv import load_dotenv
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Load environment variables from .env file
@@ -89,6 +89,19 @@ def extract_boxed_content(text):
         i += 1
     return None
 
+
+def _strip_code_fences(text: str) -> str:
+    if "```" not in text:
+        return text
+    return re.sub(r"^```[a-zA-Z0-9+_-]*\n|\n```$", "", text.strip(), flags=re.MULTILINE)
+
+
+def _extract_code_block(text: str) -> Optional[str]:
+    match = re.search(r"```[a-zA-Z0-9+_-]*\n(.*?)```", text, flags=re.DOTALL)
+    if not match:
+        return None
+    return match.group(1)
+
 def extract_answer(response):
     """Extract final answer from model response"""
     try:
@@ -98,6 +111,13 @@ def extract_answer(response):
         return answer  
             
     except (json.JSONDecodeError, KeyError, AttributeError):
+        # If the response looks like raw C++ code, return it directly
+        if "#include" in response and re.search(r"\bint\s+main\s*\(", response):
+            return _strip_code_fences(response).strip()
+        # If the response contains a fenced code block, extract it
+        code_block = _extract_code_block(response)
+        if code_block and "#include" in code_block and re.search(r"\bint\s+main\s*\(", code_block):
+            return code_block.strip()
         # JSON parsing failed, use fallback logic
         matches = re.findall(r"Finish\[(.*?)\]", response)
         if matches:
@@ -166,12 +186,18 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
         question = task_dict["question"]
         target = task_dict["target"]
 
+        if hasattr(data_processor, "get_generator_prompt_style"):
+            prompt_style = data_processor.get_generator_prompt_style()
+        else:
+            prompt_style = "json"
+
         gen_response, bullet_ids, call_info = generator.generate(
             question=question,
             playbook=playbook,
             context=context,
             reflection="(empty)",
             use_json_mode=use_json_mode,
+            prompt_style=prompt_style,
             call_id=f"test_eval_{i}",
             log_dir=log_dir
         )
@@ -278,8 +304,8 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         
         print(f"\n📊 Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
     else:
-        results = {"accuracy": 0.0, "correct": 0, "total": 0}
-        error_logs = {}
+        final_results = {"accuracy": 0.0, "correct": 0, "total": 0, "no_answer": 0}
+        error_logs = {"accuracy": 0.0, "errors": results.get("errors", [])}
         print(f"\n📊 No valid results!")
         
     return final_results, error_logs

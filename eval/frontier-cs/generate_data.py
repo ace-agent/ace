@@ -13,6 +13,27 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+# Detect if the problem is interactive
+def is_interactive_problem(config_path: Path) -> bool:
+    if not config_path.exists():
+        return False
+    try:
+        text = read_text(config_path)
+    except OSError:
+        return False
+    for line in text.splitlines():
+        stripped = line.split("#", 1)[0].strip()
+        if not stripped:
+            continue
+        if stripped.startswith("type:"):
+            _, value = stripped.split(":", 1)
+            if value.strip().lower() == "interactive":
+                return True
+        if stripped.startswith("interactor:"):
+            return True
+    return False
+
+
 def build_algorithmic_samples(frontier_root: Path) -> List[Dict]:
     problems_dir = frontier_root / "algorithmic" / "problems"
     samples = []
@@ -27,19 +48,23 @@ def build_algorithmic_samples(frontier_root: Path) -> List[Dict]:
 
         statement = read_text(statement_path).strip()
         config_path = problem_dir / "config.yaml"
-
+        interactive = is_interactive_problem(config_path)
         context = statement
 
         target = ""
 
+        metadata = {
+            "track": "algorithmic",
+            "problem_id": int(problem_dir.name),
+            "statement_path": str(statement_path),
+            "config_path": str(config_path) if config_path.exists() else "",
+            "interactive": interactive,
+        }
         samples.append({
             "context": context,
             "target": target,
             "metadata": {
-                "track": "algorithmic",
-                "problem_id": int(problem_dir.name),
-                "statement_path": str(statement_path),
-                "config_path": str(config_path) if config_path.exists() else "",
+                **metadata,
             },
         })
 

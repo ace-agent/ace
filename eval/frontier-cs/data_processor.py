@@ -69,7 +69,7 @@ class DataProcessor:
 
             processed_item = {
                 "context": context,
-                "question": self._build_question(),
+                "question": self._build_question(metadata),
                 "target": target,
                 "others": {
                     "original_context": context,
@@ -81,13 +81,14 @@ class DataProcessor:
 
         return processed_data
 
-    def _build_question(self) -> str:
+    def _build_question(self, metadata: Dict[str, Any]) -> str:
         if self.task_name == "algorithmic":
-            return (
+            base = (
                 "Solve the algorithmic problem in the context. "
                 "Write a C++17 program that follows the input/output format. "
                 "Return only code, no explanations. Optimize for score when applicable."
             )
+            return base
         # if self.task_name == "research":
         #     return (
         #         "Solve the research problem in the context. "
@@ -95,6 +96,11 @@ class DataProcessor:
         #         "Return only code, no explanations."
         #     )
         raise ValueError(f"Unknown task: {self.task_name}")
+
+    def get_generator_prompt_style(self) -> str:
+        if self.task_name == "algorithmic":
+            return "code"
+        return "json"
 
     def _algorithmic_answer_is_valid(self, predicted: str) -> bool:
         if not predicted or not predicted.strip():

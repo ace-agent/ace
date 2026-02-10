@@ -6,7 +6,7 @@ Generates answers to questions using playbook and reflection.
 import json
 import re
 from typing import Dict, List, Tuple, Optional, Any
-from ..prompts.generator import GENERATOR_PROMPT
+from ..prompts.generator import GENERATOR_PROMPT_JSON, GENERATOR_PROMPT_CODE
 from llm import timed_llm_call
 
 class Generator:
@@ -37,6 +37,7 @@ class Generator:
         context: str = "",
         reflection: str = "(empty)",
         use_json_mode: bool = False,
+        prompt_style: str = "json",
         call_id: str = "gen",
         log_dir: Optional[str] = None
     ) -> Tuple[str, List[str], Dict[str, Any]]:
@@ -56,8 +57,13 @@ class Generator:
             Tuple of (full_response, bullet_ids_used, call_info)
         """
         # Format the prompt
-        prompt = GENERATOR_PROMPT.format(playbook, reflection, question, context)
+        if prompt_style == "code":
+            prompt = GENERATOR_PROMPT_CODE.format(playbook, reflection, question, context)
+        else:
+            prompt = GENERATOR_PROMPT_JSON.format(playbook, reflection, question, context)
         
+        use_json_mode_call = use_json_mode and prompt_style != "code"
+
         response, call_info = timed_llm_call(
             self.api_client,
             self.api_provider,
@@ -67,7 +73,7 @@ class Generator:
             call_id=call_id,
             max_tokens=self.max_tokens,
             log_dir=log_dir,
-            use_json_mode=use_json_mode
+            use_json_mode=use_json_mode_call
         )
         
         # Extract bullet IDs if using retrieval and reason mode

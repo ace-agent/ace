@@ -454,6 +454,11 @@ class ACE:
         token_budget = config_params['token_budget']
         use_json_mode = config_params['use_json_mode']
         no_ground_truth = config_params['no_ground_truth']
+        # if algorithmic task, use code prompt style
+        if hasattr(data_processor, "get_generator_prompt_style"):
+            prompt_style = data_processor.get_generator_prompt_style()
+        else:
+            prompt_style = "json"
         
         # Extract sample data
         question = task_dict.get("question", "")
@@ -468,6 +473,7 @@ class ACE:
             context=context,
             reflection="(empty)",
             use_json_mode=use_json_mode,
+            prompt_style=prompt_style,
             call_id=f"{step_id}_gen_initial",
             log_dir=log_dir
         )
@@ -533,6 +539,7 @@ class ACE:
                     context=context,
                     reflection=reflection_content,
                     use_json_mode=use_json_mode,
+                    prompt_style=prompt_style,
                     call_id=f"{step_id}_post_reflect_round_{round_num}",
                     log_dir=log_dir
                 )
@@ -612,6 +619,7 @@ class ACE:
             context=context,
             reflection="(empty)",
             use_json_mode=use_json_mode,
+            prompt_style=prompt_style,
             call_id=f"{step_id}_post_curate",
             log_dir=log_dir
         )
