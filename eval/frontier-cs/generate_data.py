@@ -71,51 +71,66 @@ def build_algorithmic_samples(frontier_root: Path) -> List[Dict]:
     return samples
 
 
-# def build_research_samples(frontier_root: Path) -> List[Dict]:
-#     problems_dir = frontier_root / "research" / "problems"
-#     solutions_dir = frontier_root / "research" / "solutions"
-#     samples = []
+def build_research_samples(frontier_root: Path) -> List[Dict]:
+    problems_dir = frontier_root / "research" / "problems"
+    solutions_dir = frontier_root / "research" / "solutions"
+    samples = []
+    evaluator_paths = [
+        *problems_dir.rglob("evaluator.py"),
+        *problems_dir.rglob("evaluate.py"),
+    ]
+    ignored_dirs = {"resources", "common", "__pycache__"}
+    seen_dirs = set()
 
-#     for readme_path in sorted(problems_dir.rglob("readme")):
-#         if not readme_path.is_file():
-#             continue
+    for evaluator_path in sorted(evaluator_paths):
+        if any(part in ignored_dirs for part in evaluator_path.parts):
+            continue
 
-#         problem_dir = readme_path.parent
-#         problem_id = problem_dir.relative_to(problems_dir).as_posix()
+        problem_dir = evaluator_path.parent
+        if problem_dir in seen_dirs:
+            continue
+        seen_dirs.add(problem_dir)
 
-#         readme = read_text(readme_path).strip()
+        readme_path = problem_dir / "readme"
+        if not readme_path.exists():
+            readme_path = problem_dir / "README"
+        if not readme_path.exists():
+            continue
 
-#         config_path = problem_dir / "config.yaml"
-#         config_text = read_text(config_path).strip() if config_path.exists() else ""
+        problem_id = problem_dir.relative_to(problems_dir).as_posix()
+        readme = read_text(readme_path).strip()
 
-#         context = readme
-#         if config_text:
-#             context = f"{context}\n\n[config]\n{config_text}"
+        config_path = problem_dir / "config.yaml"
+        config_text = read_text(config_path).strip() if config_path.exists() else ""
 
-#         target = ""
-#         solution_dir = solutions_dir / problem_id
-#         has_reference = False
-#         if solution_dir.exists():
-#             has_reference = any(solution_dir.glob("*.py"))
+        context = readme
+        if config_text:
+            context = f"{context}\n\n[config]\n{config_text}"
 
-#         reference_note = "not_found"
-#         if has_reference:
-#             reference_note = "omitted_by_design"
+        target = ""
+        solution_dir = solutions_dir / problem_id
+        has_reference = False
+        if solution_dir.exists():
+            has_reference = any(solution_dir.glob("*.py"))
 
-#         samples.append({
-#             "context": context,
-#             "target": target,
-#             "metadata": {
-#                 "track": "research",
-#                 "problem_id": problem_id,
-#                 "readme_path": str(readme_path),
-#                 "config_path": str(config_path) if config_path.exists() else "",
-#                 "reference_included": reference_note == "included",
-#                 "reference_note": reference_note,
-#             },
-#         })
+        reference_note = "not_found"
+        if has_reference:
+            reference_note = "omitted_by_design"
 
-#     return samples
+        samples.append({
+            "context": context,
+            "target": target,
+            "metadata": {
+                "track": "research",
+                "problem_id": problem_id,
+                "readme_path": str(readme_path),
+                "config_path": str(config_path) if config_path.exists() else "",
+                "reference_included": reference_note == "included",
+                "reference_note": reference_note,
+            },
+        })
+
+    return samples
 
 
 def split_samples(samples: List[Dict], seed: int, train_ratio: float,
@@ -174,14 +189,14 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     algorithmic_samples = build_algorithmic_samples(frontier_root)
-    # research_samples = build_research_samples(frontier_root)
+    research_samples = build_research_samples(frontier_root)
 
     algo_train, algo_val, algo_test = split_samples(
         algorithmic_samples, args.seed, args.train_ratio, args.val_ratio
     )
-    # res_train, res_val, res_test = split_samples(
-    #     research_samples, args.seed, args.train_ratio, args.val_ratio
-    # )
+    res_train, res_val, res_test = split_samples(
+        research_samples, args.seed, args.train_ratio, args.val_ratio
+    )
 
     algo_train_path = output_dir / "algorithmic_train.jsonl"
     algo_val_path = output_dir / "algorithmic_val.jsonl"
@@ -193,9 +208,9 @@ def main():
     write_jsonl(algo_train, algo_train_path)
     write_jsonl(algo_val, algo_val_path)
     write_jsonl(algo_test, algo_test_path)
-    # write_jsonl(res_train, res_train_path)
-    # write_jsonl(res_val, res_val_path)
-    # write_jsonl(res_test, res_test_path)
+    write_jsonl(res_train, res_train_path)
+    write_jsonl(res_val, res_val_path)
+    write_jsonl(res_test, res_test_path)
 
     sample_config = {
         "algorithmic": {
@@ -215,7 +230,7 @@ def main():
 
     print("Generated Frontier-CS datasets:")
     print(f"  algorithmic: {len(algorithmic_samples)} samples")
-    # print(f"  research:    {len(research_samples)} samples")
+    print(f"  research:    {len(research_samples)} samples")
     print(f"  output_dir:  {output_dir}")
 
 

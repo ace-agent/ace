@@ -89,12 +89,12 @@ class DataProcessor:
                 "Return only code, no explanations. Optimize for score when applicable."
             )
             return base
-        # if self.task_name == "research":
-        #     return (
-        #         "Solve the research problem in the context. "
-        #         "Implement the required Python API (e.g., Solution.solve). "
-        #         "Return only code, no explanations."
-        #     )
+        if self.task_name == "research":
+            return (
+                "Solve the research problem in the context. "
+                "Implement the required Python API (e.g., Solution.solve). "
+                "Return only code, no explanations."
+            )
         raise ValueError(f"Unknown task: {self.task_name}")
 
     def get_generator_prompt_style(self) -> str:
@@ -177,10 +177,15 @@ class DataProcessor:
 
         return score
 
-    # def _research_answer_is_valid(self, predicted: str) -> bool:
-    #     if not predicted or not predicted.strip():
-    #         return False
-    #     return "class Solution" in predicted and re.search(r"\bdef\s+solve\s*\(", predicted) is not None
+    def _research_answer_is_valid(
+        self,
+        predicted: str,
+        ground_truth: Optional[str] = None,
+    ) -> bool:
+        _ = ground_truth
+        if not predicted or not predicted.strip():
+            return False
+        return "class Solution" in predicted and re.search(r"\bdef\s+solve\s*\(", predicted) is not None
 
     def answer_is_correct(self, predicted: str, ground_truth: str) -> bool:
         """
@@ -189,8 +194,8 @@ class DataProcessor:
         if self.task_name == "algorithmic":
             # When using judge scoring, treat correctness as format validity.
             return self._algorithmic_answer_is_valid(predicted)
-        # if self.task_name == "research":
-        #     return self._research_answer_is_valid(predicted)
+        if self.task_name == "research":
+            return self._research_answer_is_valid(predicted, ground_truth)
 
         raise ValueError(f"Unknown task: {self.task_name}")
 
