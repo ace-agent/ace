@@ -1,0 +1,64 @@
+{
+    "cosql_all": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "cosql_db_root": "stream-bench/data/cosql"
+    },
+    "cosql_10": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "max_samples": 10,
+        "cosql_db_root": "stream-bench/data/cosql",
+        "_comment": "Old format: max_samples applies to all splits (train, val, test)"
+    },
+    "cosql_36_balanced": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "max_samples": 36,
+        "cosql_db_root": "stream-bench/data/cosql"
+    },
+    "cosql_50": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "max_samples": 50,
+        "cosql_db_root": "stream-bench/data/cosql"
+    },
+    "cosql_150": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "max_samples": 150,
+        "cosql_db_root": "stream-bench/data/cosql"
+    },
+    "cosql_150_balanced": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "max_samples": 150,
+        "max_val_samples": 90,
+        "difficulty_filter": "balanced",
+        "cosql_db_root": "stream-bench/data/cosql"
+    },
+    "cosql_300_balanced": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "max_samples": 300,
+        "difficulty_filter": "balanced",
+        "cosql_db_root": "stream-bench/data/cosql"
+    },
+    "cosql_custom": {
+        "train_data": "stream-bench/data/streambench_cosql_train.jsonl",
+        "val_data": "stream-bench/data/streambench_cosql_val.jsonl",
+        "test_data": "stream-bench/data/streambench_cosql_test.jsonl",
+        "max_train_samples": 100,
+        "max_val_samples": 50,
+        "max_test_samples": 10,
+        "cosql_db_root": "stream-bench/data/cosql",
+        "_comment": "Separate limits: train=100, val=50, test=10"
+    }
+}

@@ -1,0 +1,66 @@
+{
+    "spider_all": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "bird_db_root": "stream-bench/data/spider"
+    },
+    "spider_10": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "max_samples": 10,
+        "bird_db_root": "stream-bench/data/spider",
+        "_comment": "Old format: max_samples applies to all splits (train, val, test)"
+    },
+    "spider_30": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "max_samples": 30,
+        "bird_db_root": "stream-bench/data/spider"
+    },
+    "spider_150": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "max_samples": 150,
+        "bird_db_root": "stream-bench/data/spider"
+    },
+    "spider_150_balanced": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "max_samples": 150,
+        "max_val_samples": 30,
+        "difficulty_filter": "balanced",
+        "bird_db_root": "stream-bench/data/spider"
+    },
+    "spider_15_balanced": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "max_samples": 15,
+        "difficulty_filter": "balanced",
+        "bird_db_root": "stream-bench/data/spider"
+    },
+    "spider_15_quasi_balanced": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "max_samples": 15,
+        "difficulty_filter": "quasi_balanced",
+        "bird_db_root": "stream-bench/data/spider",
+        "_comment": "Uses fallback: simple->moderate, challenging->moderate, moderate->half simple + half challenging"
+    },
+    "spider_150_quasi_balanced": {
+        "train_data": "stream-bench/data/streambench_spider_train.jsonl",
+        "val_data": "stream-bench/data/streambench_spider_val.jsonl",
+        "test_data": "stream-bench/data/streambench_spider_test.jsonl",
+        "max_samples": 150,
+        "max_val_samples": 30,
+        "difficulty_filter": "quasi_balanced",
+        "bird_db_root": "stream-bench/data/spider",
+        "_comment": "Quasi-balanced with separate val sample limit"
+    }
+}

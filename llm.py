@@ -117,7 +117,31 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
             is_timeout = any(k in str(e).lower() for k in ["timeout", "timed out", "connection"])
             is_rate_limit = any(k in str(e).lower() for k in ["rate limit", "429", "rate_limit_exceeded"])
             is_empty_response = "empty response" in str(e).lower() or "api returned none content" in str(e).lower()
-            
+
+            # Check for client errors (400) including invalid prompts, policy violations
+            is_client_error = False
+            is_invalid_prompt = False
+            if hasattr(e, 'response'):
+                try:
+                    status_code = getattr(e.response, 'status_code', None)
+                    if status_code and status_code == 400:
+                        is_client_error = True
+                        print(f"[{role.upper()}] Client error detected: HTTP {status_code}")
+                except:
+                    pass
+
+            # Check for invalid prompt / policy violations
+            if any(k in str(e).lower() for k in ["invalid_prompt", "usage policy", "invalid prompt", "error code: 400"]):
+                is_client_error = True
+                is_invalid_prompt = True
+                print(f"[{role.upper()}] Invalid prompt error detected: {str(e)[:200]}...")
+
+            # Also check for specific OpenAI BadRequestError
+            if hasattr(openai, 'BadRequestError') and isinstance(e, openai.BadRequestError):
+                is_client_error = True
+                if "invalid_prompt" in str(e).lower() or "usage policy" in str(e).lower():
+                    is_invalid_prompt = True
+
             # Check for server errors (500, 502, 503, etc.) that should be retried
             is_server_error = False
             if hasattr(e, 'response'):
@@ -128,16 +152,16 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
                         print(f"[{role.upper()}] Server error detected: HTTP {status_code}")
                 except:
                     pass
-            
+
             # Also check for 500 errors in the error message itself
             if any(k in str(e).lower() for k in ["500 internal server error", "internal server error", "502 bad gateway", "503 service unavailable"]):
                 is_server_error = True
                 print(f"[{role.upper()}] Server error detected in message: {str(e)[:100]}...")
-            
+
             # Also check for specific OpenAI exceptions
             if hasattr(openai, 'RateLimitError') and isinstance(e, openai.RateLimitError):
                 is_rate_limit = True
-            
+
             # Check for OpenAI InternalServerError
             if hasattr(openai, 'InternalServerError') and isinstance(e, openai.InternalServerError):
                 is_server_error = True
@@ -222,7 +246,37 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
                     # For the 4-question format, we return 4 wrong answers
                     incorrect_response = "INCORRECT_DUE_TO_EMPTY_RESPONSE, INCORRECT_DUE_TO_EMPTY_RESPONSE, INCORRECT_DUE_TO_EMPTY_RESPONSE, INCORRECT_DUE_TO_EMPTY_RESPONSE"
                     return incorrect_response, call_info
-            
+
+            # Handle client errors (400) - these should NOT be retried
+            # Instead, we skip the sample and continue execution
+            if is_client_error or is_invalid_prompt:
+                print(f"[{role.upper()}] ⚠️  Client error (400 / invalid prompt) - skipping sample and continuing execution")
+                print(f"[{role.upper()}] Error details: {str(e)[:300]}...")
+
+                error_time = time.time()
+                call_info = {
+                    "role": role,
+                    "call_id": call_id,
+                    "model": model,
+                    "prompt": prompt,
+                    "error": "CLIENT_ERROR_SKIPPED: " + str(e),
+                    "total_time": error_time - start_time,
+                    "prompt_length": len(prompt),
+                    "response_length": 0,
+                    "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3],
+                    "datetime": datetime.now().isoformat(),
+                    "skipped_due_to_invalid_prompt": is_invalid_prompt,
+                    "skipped_due_to_client_error": True
+                }
+
+                if log_dir:
+                    log_llm_call(log_dir, call_info)
+
+                # Return a response that will be marked as incorrect so execution continues
+                # This allows the training/testing loop to proceed with remaining samples
+                incorrect_response = "INCORRECT_DUE_TO_INVALID_PROMPT, INCORRECT_DUE_TO_INVALID_PROMPT, INCORRECT_DUE_TO_INVALID_PROMPT, INCORRECT_DUE_TO_INVALID_PROMPT"
+                return incorrect_response, call_info
+
             # Retry logic for timeouts, rate limits, and server errors
             if (is_timeout or is_rate_limit or is_server_error) and attempt < retries_on_timeout:
                 attempt += 1

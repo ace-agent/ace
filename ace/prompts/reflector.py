@@ -44,6 +44,9 @@ Your output should be a json object, which contains the following fields
 **Part of Playbook that's used by the generator to answer the question:**
 {}
 
+**SQL Execution Results (if available):**
+{}
+
 **Answer in this exact JSON format:**
 {{
   "reasoning": "[Your chain of thought / reasoning / thinking process, detailed analysis and calculations]",
@@ -96,6 +99,9 @@ Your output should be a json object, which contains the following fields
 {}
 
 **Part of Playbook that's used by the generator to answer the question:**
+{}
+
+**SQL Execution Results (if available):**
 {}
 
 **Answer in this exact JSON format:**

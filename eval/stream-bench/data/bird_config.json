@@ -1,0 +1,112 @@
+{
+    "bird_all": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    },
+    "bird_10": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 10,
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases",
+        "_comment": "Old format: max_samples applies to all splits (train, val, test)"
+    },
+    "bird_custom_separate": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_train_samples": 100,
+        "max_val_samples": 50,
+        "max_test_samples": 10,
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases",
+        "_comment": "Separate limits: train=100, val=50, test=10 (no default)"
+    },
+    "bird_custom_with_default": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 50,
+        "max_train_samples": 200,
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases",
+        "_comment": "Default=50, but train overridden to 200. Result: train=200, val=50, test=50"
+    },
+    "bird_30": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 30,
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    },
+    "bird_150": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 150,
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    },
+    "bird_150_balanced": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 150,
+        "max_val_samples": 30,
+        "difficulty_filter": "balanced",
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    },
+    "bird_300_balanced": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 300,
+        "difficulty_filter": "balanced",
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    },
+    "bird_60_balanced": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 60,
+        "difficulty_filter": "balanced",
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    },
+    "bird_432_balanced": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 432,
+        "difficulty_filter": "balanced",
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    },
+    "bird_1000_quasi_balanced": {
+        "train_data": "stream-bench/data/streambench_bird_train.jsonl",
+        "val_data": "stream-bench/data/streambench_bird_val.jsonl",
+        "test_data": "stream-bench/data/streambench_bird_test.jsonl",
+        "max_samples": 1000,
+        "difficulty_filter": "quasi_balanced",
+        "bird_train_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_val_db_root": "stream-bench/data/bird_train/train_databases",
+        "bird_test_db_root": "stream-bench/data/bird/dev_databases"
+    }
+}
