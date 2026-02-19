@@ -162,14 +162,13 @@ class DataProcessor:
         return predicted == ground_truth
     
     
-    def answer_is_correct(self, predicted: str, ground_truth: str, sample_metadata=None) -> bool:
+    def answer_is_correct(self, predicted: str, ground_truth: str) -> bool:
         """
         Dataset-specific answer correctness check.
 
         Args:
             predicted: Model's answer
             ground_truth: Ground truth answer
-            sample_metadata: Optional dict containing sample metadata (unused for finance tasks)
 
         Returns:
             bool: True if answer is correct, False otherwise
@@ -221,14 +220,13 @@ class DataProcessor:
         return accuracy
 
     
-    def evaluate_accuracy(self, out: List[str], target: List[str], samples=None) -> tuple:
+    def evaluate_accuracy(self, out: List[str], target: List[str]) -> tuple:
         """
         Dataset-specific accuracy evaluation.
 
         Args:
             out: List of model predictions
             target: List of ground truth targets
-            samples: Optional list of sample dicts (unused for finance tasks)
 
         Returns:
             tuple: (accuracy, response_list)
