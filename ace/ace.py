@@ -10,6 +10,7 @@ This module coordinates three agents:
 
 import os
 import json
+import time
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 
@@ -111,10 +112,10 @@ class ACE:
     def _extract_config_params(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extract common configuration parameters.
-        
+
         Args:
             config: Configuration dictionary
-            
+
         Returns:
             Dictionary with extracted parameters
         """
@@ -131,24 +132,36 @@ class ACE:
             'save_dir': config.get('save_dir', './results'),
             'test_workers': config.get('test_workers', 20),
             'use_bulletpoint_analyzer': config.get('use_bulletpoint_analyzer', False),
-            'bulletpoint_analyzer_threshold': config.get('bulletpoint_analyzer_threshold', 0.90)
+            'bulletpoint_analyzer_threshold': config.get('bulletpoint_analyzer_threshold', 0.90),
+            'pass_sql_eval_results': config.get('pass_sql_eval_results', False)
         }
     
-    def _setup_paths(self, save_dir: str, task_name: str, mode: str) -> Tuple[str, str]:
+    def _setup_paths(self, save_dir: str, task_name: str, mode: str, db_name: str = None, curriculum: str = None) -> Tuple[str, str]:
         """
         Setup logging paths and directories.
-        
+
         Args:
             save_dir: Base path for saving results
             task_name: task name
             mode: 'offline', 'online', or 'eval_only'
-            
+            db_name: Optional database name to include in folder name
+            curriculum: Optional curriculum level to include in folder name
+
         Returns:
             Tuple of (usage_log_path, playbook_dir)
         """
         # Create timestamped run folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_folder = f"ace_run_{timestamp}_{task_name}_{mode}"
+
+        # Build run folder name with optional db_name and curriculum
+        run_folder_parts = ["ace_run", timestamp, task_name]
+        if db_name:
+            run_folder_parts.append(db_name)
+        if curriculum:
+            run_folder_parts.append(curriculum)
+        run_folder_parts.append(mode)
+        run_folder = "_".join(run_folder_parts)
+
         save_path = os.path.join(save_dir, run_folder)
         os.makedirs(save_path, exist_ok=True)
         log_dir = os.path.join(save_path, "detailed_llm_logs")
@@ -160,7 +173,7 @@ class ACE:
         usage_log_path = os.path.join(save_path, "bullet_usage_log.jsonl")
         playbook_dir = os.path.join(save_path, "intermediate_playbooks")
         os.makedirs(playbook_dir, exist_ok=True)
-        
+
         return save_path, usage_log_path, playbook_dir, log_dir
     
     def run(
@@ -169,48 +182,59 @@ class ACE:
         train_samples: Optional[List[Dict[str, Any]]] = None,
         val_samples: Optional[List[Dict[str, Any]]] = None,
         test_samples: Optional[List[Dict[str, Any]]] = None,
-        data_processor = None,
+        train_processor = None,
+        val_processor = None,
+        test_processor = None,
+        data_processor = None,  # Kept for backward compatibility
         config: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
         Main entrypoint for running ACE system in different modes.
-        
+
         Args:
             mode: Run mode - 'offline', 'online', or 'eval_only'
             train_samples: Training samples (required for offline mode)
             val_samples: Validation samples (required for offline mode)
             test_samples: Test samples (required for online and eval_only modes)
-            data_processor: Data processor instance for the task
+            train_processor: Data processor for training samples
+            val_processor: Data processor for validation samples
+            test_processor: Data processor for test samples
+            data_processor: (Deprecated) Single processor for backward compatibility
             config: Configuration dictionary
-            
+
         Returns:
             Dictionary with results depending on the mode
         """
+        # Handle backward compatibility: if data_processor provided but no split processors, use it for all
+        if data_processor is not None and train_processor is None and val_processor is None and test_processor is None:
+            train_processor = val_processor = test_processor = data_processor
         # Validate inputs
         if mode not in ['offline', 'online', 'eval_only']:
             raise ValueError(f"Invalid mode: {mode}. Must be 'offline', 'online', or 'eval_only'")
-        
+
         if mode == 'offline' and (train_samples is None or val_samples is None):
             raise ValueError("Offline mode requires train_samples and val_samples")
-        
+
         if mode == 'online' and test_samples is None:
             raise ValueError("Online mode requires test_samples")
-        
+
         if mode == 'eval_only' and test_samples is None:
             raise ValueError("eval_only mode requires test_samples")
-        
+
         # Extract configuration
         config_params = self._extract_config_params(config)
         task_name = config_params['task_name']
         save_dir = config_params['save_dir']
-        
+        db_name = config.get('db_name', None) if config else None
+        curriculum = config.get('curriculum', None) if config else None
+
         # Setup paths based on mode
         if mode == 'eval_only':
-            save_path, log_dir = self._setup_paths(save_dir, task_name, mode)
+            save_path, log_dir = self._setup_paths(save_dir, task_name, mode, db_name, curriculum)
             usage_log_path = None
             playbook_dir = None
         else:
-            save_path, usage_log_path, playbook_dir, log_dir = self._setup_paths(save_dir, task_name, mode)
+            save_path, usage_log_path, playbook_dir, log_dir = self._setup_paths(save_dir, task_name, mode, db_name, curriculum)
         
         # Save configuration
         config_path = os.path.join(save_path, "run_config.json")
@@ -252,7 +276,7 @@ class ACE:
                 print(f"{'='*60}\n")
                 initial_test_results = self._run_test(
                     test_samples=test_samples,
-                    data_processor=data_processor,
+                    data_processor=test_processor,
                     playbook=self.playbook,
                     config=config,
                     log_dir=log_dir,
@@ -260,8 +284,8 @@ class ACE:
                     prefix="initial"
                 )
                 results['initial_test_results'] = initial_test_results
-                print(f"Initial Test Accuracy: {initial_test_results['accuracy']:.3f}\n")
-            
+                print(f"Initial Test Accuracy: {initial_test_results['accuracy']:.3f} ({initial_test_results['correct']}/{initial_test_results['total']})\n")
+
             # 2. Run offline training
             print(f"\n{'='*60}")
             print(f"STARTING OFFLINE TRAINING")
@@ -269,7 +293,8 @@ class ACE:
             training_results = self._offline_train(
                 train_samples=train_samples,
                 val_samples=val_samples,
-                data_processor=data_processor,
+                train_processor=train_processor,
+                val_processor=val_processor,
                 config=config,
                 save_path=save_path,
                 usage_log_path=usage_log_path,
@@ -285,7 +310,7 @@ class ACE:
                 print(f"{'='*60}\n")
                 final_test_results = self._run_test(
                     test_samples=test_samples,
-                    data_processor=data_processor,
+                    data_processor=test_processor,
                     playbook=self.best_playbook,
                     config=config,
                     log_dir=log_dir,
@@ -293,7 +318,7 @@ class ACE:
                     prefix="final"
                 )
                 results['final_test_results'] = final_test_results
-                print(f"Final Test Accuracy: {final_test_results['accuracy']:.3f}\n")
+                print(f"Final Test Accuracy: {final_test_results['accuracy']:.3f} ({final_test_results['correct']}/{final_test_results['total']})\n")
         
         elif mode == 'online':
             # ONLINE MODE WORKFLOW
@@ -303,7 +328,7 @@ class ACE:
             print(f"{'='*60}\n")
             initial_test_results = self._run_test(
                 test_samples=test_samples,
-                data_processor=data_processor,
+                data_processor=test_processor,
                 playbook=self.playbook,
                 config=config,
                 log_dir=log_dir,
@@ -311,15 +336,15 @@ class ACE:
                 prefix="initial"
             )
             results['initial_test_results'] = initial_test_results
-            print(f"Initial Test Accuracy: {initial_test_results['accuracy']:.3f}\n")
-            
+            print(f"Initial Test Accuracy: {initial_test_results['accuracy']:.3f} ({initial_test_results['correct']}/{initial_test_results['total']})\n")
+
             # 2. Run online training and testing
             print(f"\n{'='*60}")
             print(f"STARTING ONLINE TRAIN AND TEST")
             print(f"{'='*60}\n")
             online_results = self._online_train_and_test(
                 test_samples=test_samples,
-                data_processor=data_processor,
+                data_processor=test_processor,
                 config=config,
                 save_path=save_path,
                 usage_log_path=usage_log_path,
@@ -327,7 +352,7 @@ class ACE:
                 log_dir=log_dir
             )
             results['online_test_results'] = online_results
-        
+
         else:  # eval_only
             # EVAL ONLY MODE WORKFLOW
             print(f"\n{'='*60}")
@@ -335,7 +360,7 @@ class ACE:
             print(f"{'='*60}\n")
             test_results = self._run_test(
                 test_samples=test_samples,
-                data_processor=data_processor,
+                data_processor=test_processor,
                 playbook=self.playbook,
                 config=config,
                 log_dir=log_dir,
@@ -357,16 +382,18 @@ class ACE:
         if mode == 'offline':
             print(f"Best Validation Accuracy: {results['training_results']['best_validation_accuracy']:.3f}")
             if test_samples:
-                print(f"Initial Test Accuracy: {results['initial_test_results']['accuracy']:.3f}")
-                print(f"Final Test Accuracy: {results['final_test_results']['accuracy']:.3f}")
+                print(f"Initial Test Accuracy: {results['initial_test_results']['accuracy']:.3f} ({results['initial_test_results']['correct']}/{results['initial_test_results']['total']})")
+                print(f"Final Test Accuracy: {results['final_test_results']['accuracy']:.3f} ({results['final_test_results']['correct']}/{results['final_test_results']['total']})")
         elif mode == 'online':
-            print(f"Initial Test Accuracy: {results['initial_test_results']['accuracy']:.3f}")
-            print(f"Final Test Accuracy: {results['online_test_results']['accuracy']:.3f}")
+            print(f"Initial Test Accuracy: {results['initial_test_results']['accuracy']:.3f} ({results['initial_test_results']['correct']}/{results['initial_test_results']['total']})")
+            print(f"Final Test Accuracy: {results['online_test_results']['accuracy']:.3f} ({results['online_test_results']['correct']}/{results['online_test_results']['total']})")
         else:  # eval_only
-            print(f"Test Accuracy: {results['test_results']['accuracy']:.3f}")
+            print(f"Test Accuracy: {results['test_results']['accuracy']:.3f} ({results['test_results']['correct']}/{results['test_results']['total']})")
         print(f"Results saved to: {save_path}")
         print(f"{'='*60}\n")
-        
+
+        # Add save_path to results for external use
+        results['save_path'] = save_path
         return results
     
     def _run_test(
@@ -474,15 +501,26 @@ class ACE:
         
         # Extract answer and check correctness
         final_answer = extract_answer(gen_response)
-        is_correct = data_processor.answer_is_correct(final_answer, target)
+        sample_metadata = task_dict.get("others", None)
+
+        # Get SQL evaluation results if flag is enabled
+        pass_sql_eval_results = config_params.get('pass_sql_eval_results', False)
+        if pass_sql_eval_results:
+            is_correct, sql_exec_results = data_processor.answer_is_correct(
+                final_answer, target, sample_metadata, return_exec_results=True
+            )
+        else:
+            is_correct = data_processor.answer_is_correct(final_answer, target, sample_metadata)
+            sql_exec_results = None
+
         pre_train_answer = final_answer
-        
+
         print(f"Correct: {is_correct}")
-        
+
         # Log bullet usage
         log_bullet_usage(usage_log_path, epoch, step, task_dict, bullet_ids,
                        playbook=self.playbook, is_correct=is_correct)
-        
+
         # Track pre-train result
         tracking_dict = {
             "pre_train_result": {
@@ -492,20 +530,20 @@ class ACE:
                 "playbook_length": len(self.playbook)
             }
         }
-        
+
         reflection_content = "(empty)"
-        
+
         # STEP 2: Reflection and regeneration
         if not is_correct:
             # For incorrect answers - iterate reflection rounds
             for round_num in range(max_num_rounds):
                 print(f"Reflection round {round_num + 1}/{max_num_rounds}")
-                
+
                 # Get bullets for reflector
                 playbook_bullets = extract_playbook_bullets(
                     self.playbook, bullet_ids
                 )
-                
+
                 # Reflect on error
                 reflection_content, bullet_tags, _ = self.reflector.reflect(
                     question=question,
@@ -517,7 +555,8 @@ class ACE:
                     use_ground_truth=not no_ground_truth,
                     use_json_mode=use_json_mode,
                     call_id=f"{step_id}_round_{round_num}",
-                    log_dir=log_dir
+                    log_dir=log_dir,
+                    sql_exec_results=sql_exec_results if pass_sql_eval_results else None
                 )
                 
                 # Update bullet counts
@@ -538,8 +577,8 @@ class ACE:
                 )
                 
                 final_answer = extract_answer(gen_response)
-                
-                if data_processor.answer_is_correct(final_answer, target):
+
+                if data_processor.answer_is_correct(final_answer, target, sample_metadata):
                     print(f"Corrected after reflection round {round_num + 1}!")
                     is_correct = True
                     break
@@ -549,7 +588,7 @@ class ACE:
             playbook_bullets = extract_playbook_bullets(
                 self.playbook, bullet_ids
             )
-            
+
             reflection_content, bullet_tags, _ = self.reflector.reflect(
                 question=question,
                 reasoning_trace=gen_response,
@@ -560,7 +599,8 @@ class ACE:
                 use_ground_truth=not no_ground_truth,
                 use_json_mode=use_json_mode,
                 call_id=f"{step_id}_reflect_on_correct",
-                log_dir=log_dir
+                log_dir=log_dir,
+                sql_exec_results=sql_exec_results if pass_sql_eval_results else None
             )
             
             # Update bullet counts
@@ -618,8 +658,8 @@ class ACE:
         
         final_answer = extract_answer(gen_response)
         post_train_answer = final_answer
-        
-        post_train_is_correct = data_processor.answer_is_correct(final_answer, target)
+
+        post_train_is_correct = data_processor.answer_is_correct(final_answer, target, sample_metadata)
         tracking_dict["post_train_result"] = {
             "final_answer": final_answer,
             "is_correct": post_train_is_correct,
@@ -633,7 +673,8 @@ class ACE:
         self,
         train_samples: List[Dict[str, Any]],
         val_samples: List[Dict[str, Any]],
-        data_processor,
+        train_processor,
+        val_processor,
         config: Dict[str, Any],
         save_path: str,
         usage_log_path: str,
@@ -642,11 +683,12 @@ class ACE:
     ) -> Dict[str, Any]:
         """
         Run offline training
-        
+
         Args:
             train_samples: List of training samples
             val_samples: List of validation samples
-            data_processor: Data processor instance for the task
+            train_processor: Data processor for training samples
+            val_processor: Data processor for validation samples
             config: Configuration dictionary
             save_path: Path to save results
             usage_log_path: Path for bullet usage logging
@@ -670,6 +712,7 @@ class ACE:
         results = []
         pre_train_post_train_results = []
         error_logs = []
+        step_timings = []
         best_accuracy = 0.0
         self.best_playbook = self.playbook
 
@@ -678,28 +721,29 @@ class ACE:
         print(f"Val samples: {len(val_samples)}")
         print(f"Curator frequency: every {curator_frequency} steps")
         print(f"Evaluation frequency: every {eval_steps} steps\n")
-        
+
         # Training loop
         for epoch in range(1, num_epochs + 1):
             print(f"\n{'='*60}")
             print(f"EPOCH {epoch}/{num_epochs}")
             print(f"{'='*60}")
-            
+
             epoch_answers_pre_train = []
             epoch_targets_pre_train = []
             epoch_answers_post_train = []
             epoch_targets_post_train = []
-            
+
             for step, task_dict in enumerate(train_samples):
                 step += 1
+                step_start_time = time.time()
                 print(f"\n--- Step {step}/{len(train_samples)} ---")
-                
+
                 target = task_dict.get("target", "")
-                
+
                 # Use helper method for training single sample
                 pre_train_answer, post_train_answer, tracking_dict = self._train_single_sample(
                     task_dict=task_dict,
-                    data_processor=data_processor,
+                    data_processor=train_processor,
                     step_id=f"train_e_{epoch}_s_{step}",
                     epoch=epoch,
                     step=step,
@@ -708,18 +752,29 @@ class ACE:
                     config_params=config_params,
                     total_samples=len(train_samples)
                 )
-                
+
+                step_elapsed_time = time.time() - step_start_time
+                print(f"Step {step} completed in {step_elapsed_time:.2f} seconds")
+
+                # Track step timing
+                step_timings.append({
+                    "epoch": epoch,
+                    "step": step,
+                    "time_seconds": step_elapsed_time
+                })
+
                 # Collect answers for accuracy calculation
                 epoch_answers_pre_train.append(pre_train_answer)
                 epoch_targets_pre_train.append(target)
                 epoch_answers_post_train.append(post_train_answer)
                 epoch_targets_post_train.append(target)
-                
+
                 # Track pre-train and post-train results
                 pre_train_post_train_result = {
                     "epoch": epoch,
                     "step": step,
                     "target": target,
+                    "step_time_seconds": step_elapsed_time,
                     **tracking_dict
                 }
                 pre_train_post_train_results.append(pre_train_post_train_result)
@@ -739,18 +794,18 @@ class ACE:
                     print(f"{'='*40}")
                     
                     # Compute training accuracies
-                    pre_train_accuracy = data_processor.evaluate_accuracy(
+                    pre_train_accuracy = train_processor.evaluate_accuracy(
                         epoch_answers_pre_train, epoch_targets_pre_train
                     )
-                    post_train_accuracy = data_processor.evaluate_accuracy(
+                    post_train_accuracy = train_processor.evaluate_accuracy(
                         epoch_answers_post_train, epoch_targets_post_train
                     )
-                    
+
                     # Validation evaluation
                     val_results = {}
                     if val_samples:
                         val_results, val_error_log = evaluate_test_set(
-                            data_processor, self.generator, self.playbook, 
+                            val_processor, self.generator, self.playbook, 
                             val_samples, self.max_tokens, log_dir, 
                             max_workers=test_workers, use_json_mode=use_json_mode
                         )
@@ -809,25 +864,31 @@ class ACE:
                 "best_accuracy": best_accuracy,
                 "results": results,
             }, f, indent=2)
-        
+
         pre_train_post_train_results_path = os.path.join(save_path, "pre_train_post_train_results.json")
         with open(pre_train_post_train_results_path, "w") as f:
             json.dump(pre_train_post_train_results, f, indent=2)
-        
+
+        # Calculate timing statistics
+        total_training_time = sum(t["time_seconds"] for t in step_timings)
+        avg_step_time = total_training_time / len(step_timings) if step_timings else 0
+
         # Save final playbook
         final_playbook_path = os.path.join(save_path, f"final_playbook.txt")
         with open(final_playbook_path, "w") as f:
             f.write(self.playbook)
-        
+
         # Save best playbook
         best_playbook_path = os.path.join(save_path, f"best_playbook.txt")
         with open(best_playbook_path, "w") as f:
             f.write(self.best_playbook)
-        
+
         print(f"\n{'='*60}")
         print(f"OFFLINE TRAINING COMPLETE")
         print(f"{'='*60}")
         print(f"Best Validation Accuracy: {best_accuracy:.3f}")
+        print(f"Total Training Time: {total_training_time/60:.2f} minutes ({total_training_time:.2f} seconds)")
+        print(f"Average Step Time: {avg_step_time:.2f} seconds")
         print(f"{'='*60}\n")
 
         return {"best_validation_accuracy": best_accuracy}
@@ -918,7 +979,8 @@ class ACE:
         # Initialize tracking
         train_results = []
         pre_train_post_train_results = []
-        
+        step_timings = []
+
         # Test tracking - accumulate across all windows
         correct_count_sample_based = 0
         correct_count = 0
@@ -1009,12 +1071,13 @@ class ACE:
             for local_step, task_dict in enumerate(window_samples):
                 global_step += 1
                 local_step += 1
-                
+                step_start_time = time.time()
+
                 print(f"\n--- Window {window_idx + 1}, Step {local_step}/{len(window_samples)} "
                       f"(Global step {global_step}) ---")
-                
+
                 target = task_dict.get("target", "")
-                
+
                 # Use helper method for training single sample
                 pre_train_answer, post_train_answer, tracking_dict = self._train_single_sample(
                     task_dict=task_dict,
@@ -1027,18 +1090,29 @@ class ACE:
                     config_params=config_params,
                     total_samples=len(test_samples)
                 )
-                
+
+                step_elapsed_time = time.time() - step_start_time
+                print(f"Step {global_step} completed in {step_elapsed_time:.2f} seconds")
+
+                # Track step timing
+                step_timings.append({
+                    "window": window_idx + 1,
+                    "global_step": global_step,
+                    "time_seconds": step_elapsed_time
+                })
+
                 # Collect answers for accuracy calculation
                 epoch_answers_pre_train.append(pre_train_answer)
                 epoch_targets_pre_train.append(target)
                 epoch_answers_post_train.append(post_train_answer)
                 epoch_targets_post_train.append(target)
-                
+
                 # Track pre-train and post-train results
                 pre_train_post_train_result = {
                     "window": window_idx + 1,
                     "global_step": global_step,
                     "target": target,
+                    "step_time_seconds": step_elapsed_time,
                     **tracking_dict
                 }
                 pre_train_post_train_results.append(pre_train_post_train_result)
@@ -1053,10 +1127,10 @@ class ACE:
             
             # End of window - compute training accuracies for this window
             pre_train_accuracy = data_processor.evaluate_accuracy(
-                epoch_answers_pre_train, epoch_targets_pre_train
+                epoch_answers_pre_train, epoch_targets_pre_train, window_samples
             )
             post_train_accuracy = data_processor.evaluate_accuracy(
-                epoch_answers_post_train, epoch_targets_post_train
+                epoch_answers_post_train, epoch_targets_post_train, window_samples
             )
             
             window_train_result = {
@@ -1123,16 +1197,22 @@ class ACE:
         pre_train_post_train_results_path = os.path.join(save_path, "pre_train_post_train_results.json")
         with open(pre_train_post_train_results_path, "w") as f:
             json.dump(pre_train_post_train_results, f, indent=2)
-        
+
+        # Calculate timing statistics
+        total_training_time = sum(t["time_seconds"] for t in step_timings)
+        avg_step_time = total_training_time / len(step_timings) if step_timings else 0
+
         # Save final playbook
         final_playbook_path = os.path.join(save_path, f"final_playbook.txt")
         with open(final_playbook_path, "w") as f:
             f.write(self.playbook)
-        
+
         print(f"\n{'='*60}")
         print(f"ONLINE TRAINING AND TESTING COMPLETE")
         print(f"{'='*60}")
-        print(f"Final Test Accuracy: {final_test_accuracy:.3f}")
+        print(f"Final Test Accuracy: {final_test_accuracy:.3f} ({correct_count}/{total_count})")
+        print(f"Total Training Time: {total_training_time/60:.2f} minutes ({total_training_time:.2f} seconds)")
+        print(f"Average Step Time: {avg_step_time:.2f} seconds")
         print(f"{'='*60}\n")
         
         return {

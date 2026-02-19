@@ -37,8 +37,8 @@ def initialize_clients(api_provider):
     generator_client = openai.OpenAI(api_key=api_key, base_url=base_url)
     reflector_client = openai.OpenAI(api_key=api_key, base_url=base_url)
     curator_client = openai.OpenAI(api_key=api_key, base_url=base_url)
-    
-    print("Using Together API for all models")
+
+    print(f"Using {api_provider.capitalize()} API for all models")
     return generator_client, reflector_client, curator_client
 
 def get_section_slug(section_name):
@@ -177,7 +177,11 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
         )
 
         final_answer = extract_answer(gen_response)
-        is_correct = data_processor.answer_is_correct(final_answer, target)
+        # print("============= calling data_processor answer_is_correct ===========")
+
+        # Pass sample metadata for thread-safe evaluation (e.g., db_name for SQL tasks)
+        sample_metadata = task_dict.get("others", None)
+        is_correct = data_processor.answer_is_correct(final_answer, target, sample_metadata)
 
         return {
             "index": i,
@@ -192,11 +196,11 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
 
 
 def evaluate_test_set(data_processor, generator, playbook, test_samples,
-                      max_tokens=4096, log_dir=None, max_workers=20, 
+                      max_tokens=4096, log_dir=None, max_workers=20,
                       use_json_mode=False) -> Tuple[Dict, Dict]:
     """
     Parallel evaluation of test set - task-agnostic implementation.
-    
+
     Args:
         data_processor: DataProcessor instance with answer_is_correct and evaluate_accuracy methods
         generator: Generator instance
@@ -206,7 +210,7 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         log_dir: Directory for logs
         max_workers: Number of parallel workers
         use_json_mode: Whether to use JSON mode
-        
+
     Returns:
         Tuple of (results_dict, error_logs_dict)
     """
@@ -224,62 +228,104 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         "answers": [], "targets": [], "errors": []
     }
 
+    # NEW: Track results by difficulty level
+    difficulty_results = {}
+
+    # Store results indexed by original sample position to preserve order
+    indexed_results = {}
+
     # Use a wrapper to pass data_processor to the evaluation function
     def eval_wrapper(args_tuple):
         return evaluate_single_test_sample(args_tuple, data_processor)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_args = {
-            executor.submit(eval_wrapper, args): args 
+            executor.submit(eval_wrapper, args): args
             for args in args_list
         }
 
         for i, future in enumerate(as_completed(future_to_args), 1):
             result, error = future.result()
-            
+
             if error:
                 print(error)
                 continue
 
             if result and result["success"]:
+                # Store result by its original index to preserve order
+                indexed_results[result["index"]] = result
+
                 results["correct"] += (1 if result["is_correct"] else 0)
                 results["total"] += 1
-                results["answers"].append(result["final_answer"])
-                results["targets"].append(result["target"])
-                
+
+                # NEW: Track by difficulty level
+                sample = test_samples[result["index"]]
+                difficulty = sample.get("others", {}).get("difficulty", "unknown")
+                if difficulty not in difficulty_results:
+                    difficulty_results[difficulty] = {"correct": 0, "total": 0}
+                difficulty_results[difficulty]["total"] += 1
+                if result["is_correct"]:
+                    difficulty_results[difficulty]["correct"] += 1
+
                 if not result["is_correct"]:
                     results["errors"].append({
                         "index": result["index"],
                         "prediction": result["final_answer"],
                         "ground_truth": result["target"]
                     })
-                
+
                 if result["final_answer"] == "No final answer found":
                     results["no_answer"] += 1
 
             if i % 50 == 0:
                 curr_acc = results["correct"] / results["total"] if results["total"] > 0 else 0
                 print(f"Progress: {i}/{len(args_list)}, Accuracy: {curr_acc:.3f}")
-    
+
+    # Reconstruct answers and targets in original order
+    for idx in sorted(indexed_results.keys()):
+        result = indexed_results[idx]
+        results["answers"].append(result["final_answer"])
+        results["targets"].append(result["target"])
+    # NEW
     if results["answers"] and results["targets"]:
-        accuracy = data_processor.evaluate_accuracy(results["answers"], results["targets"])
-        
+        # Calculate overall accuracy from worker thread results (no re-evaluation)
+        accuracy = results["correct"] / results["total"] if results["total"] > 0 else 0.0
+
+        # Calculate accuracy by difficulty
+        accuracy_by_difficulty = {}
+        for difficulty, diff_results in difficulty_results.items():
+            if diff_results["total"] > 0:
+                diff_accuracy = diff_results["correct"] / diff_results["total"]
+                accuracy_by_difficulty[difficulty] = {
+                    "accuracy": diff_accuracy,
+                    "correct": diff_results["correct"],
+                    "total": diff_results["total"]
+                }
+
         final_results = {
             "accuracy": accuracy,
             "correct": results["correct"],
             "total": results["total"],
-            "no_answer": results["no_answer"]
+            "no_answer": results["no_answer"],
+            "by_difficulty": accuracy_by_difficulty
         }
-        
+
         error_logs = {
             "accuracy": accuracy,
             "errors": results["errors"]
         }
-        
+
         print(f"\n📊 Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
+
+        # Print accuracy by difficulty level
+        if accuracy_by_difficulty:
+            print(f"\n📈 Accuracy by Difficulty Level:")
+            for difficulty in sorted(accuracy_by_difficulty.keys()):
+                diff_data = accuracy_by_difficulty[difficulty]
+                print(f"  {difficulty}: {diff_data['accuracy']:.3f} ({diff_data['correct']}/{diff_data['total']})")
     else:
-        results = {"accuracy": 0.0, "correct": 0, "total": 0}
+        final_results = {"accuracy": 0.0, "correct": 0, "total": 0, "by_difficulty": {}}
         error_logs = {}
         print(f"\n📊 No valid results!")
-        
+
     return final_results, error_logs

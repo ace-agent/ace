@@ -4,3 +4,9 @@
 __pycache__/
 */__pycache__/
 results/
+
+# OS files
+.DS_Store
+
+# data files
+eval/stream-bench/data
