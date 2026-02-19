@@ -136,7 +136,7 @@ class ACE:
             'pass_sql_eval_results': config.get('pass_sql_eval_results', False)
         }
     
-    def _setup_paths(self, save_dir: str, task_name: str, mode: str, db_name: str = None, curriculum: str = None) -> Tuple[str, str]:
+    def _setup_paths(self, save_dir: str, task_name: str, mode: str, metadata: Dict[str, Any] = None) -> Tuple[str, str]:
         """
         Setup logging paths and directories.
 
@@ -144,12 +144,16 @@ class ACE:
             save_dir: Base path for saving results
             task_name: task name
             mode: 'offline', 'online', or 'eval_only'
-            db_name: Optional database name to include in folder name
-            curriculum: Optional curriculum level to include in folder name
+            metadata: Optional dict with extra fields to include in the folder name
+                      (e.g. {'db_name': 'my_db', 'curriculum': 'easy_to_hard'})
 
         Returns:
             Tuple of (usage_log_path, playbook_dir)
         """
+        metadata = metadata or {}
+        db_name = metadata.get('db_name')
+        curriculum = metadata.get('curriculum')
+
         # Create timestamped run folder
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -225,16 +229,18 @@ class ACE:
         config_params = self._extract_config_params(config)
         task_name = config_params['task_name']
         save_dir = config_params['save_dir']
-        db_name = config.get('db_name', None) if config else None
-        curriculum = config.get('curriculum', None) if config else None
+        metadata = {
+            'db_name': config.get('db_name') if config else None,
+            'curriculum': config.get('curriculum') if config else None,
+        }
 
         # Setup paths based on mode
         if mode == 'eval_only':
-            save_path, log_dir = self._setup_paths(save_dir, task_name, mode, db_name, curriculum)
+            save_path, log_dir = self._setup_paths(save_dir, task_name, mode, metadata)
             usage_log_path = None
             playbook_dir = None
         else:
-            save_path, usage_log_path, playbook_dir, log_dir = self._setup_paths(save_dir, task_name, mode, db_name, curriculum)
+            save_path, usage_log_path, playbook_dir, log_dir = self._setup_paths(save_dir, task_name, mode, metadata)
         
         # Save configuration
         config_path = os.path.join(save_path, "run_config.json")
