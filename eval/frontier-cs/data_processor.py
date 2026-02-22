@@ -57,13 +57,13 @@ class DataProcessor:
             target = item.get("target", "")
             metadata = item.get("metadata", {})
 
-            if self.task_name == "algorithmic":
+            if self.use_judge:
                 problem_id = metadata.get("problem_id")
-                if problem_id is None and self.use_judge:
-                    raise ValueError("Missing problem_id in metadata for algorithmic judging.")
-                if problem_id is not None and (not target or (isinstance(target, str) and not target.strip())):
+                if problem_id is None:
+                    raise ValueError("Missing problem_id in metadata for judge-based evaluation.")
+                if not target or (isinstance(target, str) and not target.strip()):
                     target = json.dumps(
-                        {"problem_id": int(problem_id)},
+                        {"problem_id": str(problem_id), "track": self.task_name},
                         separators=(",", ":"),
                     )
 
@@ -98,30 +98,35 @@ class DataProcessor:
         raise ValueError(f"Unknown task: {self.task_name}")
 
     def get_generator_prompt_style(self) -> str:
-        if self.task_name == "algorithmic":
+        if self.task_name in {"algorithmic", "research"}:
             return "code"
         return "json"
+
+    def extract_final_answer(self, response: str) -> str:
+        if self.task_name in {"algorithmic", "research"}:
+            return response.strip()
+        return response
 
     def _algorithmic_answer_is_valid(self, predicted: str) -> bool:
         if not predicted or not predicted.strip():
             return False
         return bool(re.search(r"\bint\s+main\s*\(", predicted)) and "#include" in predicted
 
-    def _extract_problem_id(self, ground_truth: str) -> Optional[int]:
+    def _extract_problem_id(self, ground_truth: str) -> Optional[str]:
         if not ground_truth:
             return None
         if isinstance(ground_truth, str):
             try:
                 payload = json.loads(ground_truth)
                 if isinstance(payload, dict) and "problem_id" in payload:
-                    return int(payload["problem_id"])
+                    return str(payload["problem_id"])
             except json.JSONDecodeError:
                 if ground_truth.isdigit():
-                    return int(ground_truth)
+                    return ground_truth
         return None
 
     def _ensure_evaluator(self) -> None:
-        if not self.use_judge or self.task_name != "algorithmic":
+        if not self.use_judge:
             return
         if self._evaluator or self._evaluator_error:
             return
@@ -141,7 +146,7 @@ class DataProcessor:
             judge_url=self.judge_url,
         )
 
-    def _cache_key(self, problem_id: int, code: str) -> tuple:
+    def _cache_key(self, problem_id: str, code: str) -> tuple:
         code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
         return (str(problem_id), code_hash, self.backend or "")
 
@@ -163,6 +168,38 @@ class DataProcessor:
 
         result = self._evaluator.evaluate(
             "algorithmic",
+            problem_id=problem_id,
+            code=predicted,
+            backend=self.backend,
+        )
+
+        score = 0.0
+        if result.success:
+            score = result.score if result.score is not None else 0.0
+
+        with self._cache_lock:
+            self._score_cache[key] = score
+
+        return score
+
+    def _score_research(self, predicted: str, problem_id: str) -> float:
+        if not self._research_answer_is_valid(predicted, None):
+            return 0.0
+
+        key = self._cache_key(problem_id, predicted)
+        with self._cache_lock:
+            if key in self._score_cache:
+                return self._score_cache[key]
+
+        self._ensure_evaluator()
+        if not self._evaluator:
+            raise RuntimeError(
+                "Frontier-CS evaluator not available. "
+                "Set --frontier_root to the Frontier-CS repo and ensure dependencies are installed."
+            )
+
+        result = self._evaluator.evaluate(
+            "research",
             problem_id=problem_id,
             code=predicted,
             backend=self.backend,
@@ -209,14 +246,20 @@ class DataProcessor:
         if not out:
             return 0.0
 
-        if self.task_name == "algorithmic" and self.use_judge:
+        if self.use_judge and self.task_name in {"algorithmic", "research"}:
             scores = []
             for predicted, ground_truth in zip(out, target):
                 problem_id = self._extract_problem_id(ground_truth)
                 if problem_id is None:
                     scores.append(0.0)
                     continue
-                scores.append(self._score_algorithmic(predicted, problem_id))
+                if self.task_name == "algorithmic":
+                    try:
+                        scores.append(self._score_algorithmic(predicted, int(problem_id)))
+                    except ValueError:
+                        scores.append(0.0)
+                else:
+                    scores.append(self._score_research(predicted, str(problem_id)))
             return sum(scores) / len(scores) if scores else 0.0
 
         correct_count = 0

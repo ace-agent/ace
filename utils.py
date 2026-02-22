@@ -202,7 +202,10 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
             log_dir=log_dir
         )
 
-        final_answer = extract_answer(gen_response)
+        if hasattr(data_processor, "extract_final_answer"):
+            final_answer = data_processor.extract_final_answer(gen_response)
+        else:
+            final_answer = extract_answer(gen_response)
         is_correct = data_processor.answer_is_correct(final_answer, target)
 
         return {
@@ -246,6 +249,8 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
     ]
 
     results = {
+        # Legacy names kept for backward compatibility:
+        # correct/total reflect format-valid outputs, not judge score correctness.
         "correct": 0, "total": 0, "no_answer": 0,
         "answers": [], "targets": [], "errors": []
     }
@@ -291,7 +296,13 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         accuracy = data_processor.evaluate_accuracy(results["answers"], results["targets"])
         
         final_results = {
+            # Backward-compatible field name used by existing callers.
             "accuracy": accuracy,
+            # Explicit names to avoid confusion with score-based evaluation.
+            "mean_score": accuracy,
+            "format_valid_count": results["correct"],
+            "evaluated_count": results["total"],
+            # Legacy fields preserved.
             "correct": results["correct"],
             "total": results["total"],
             "no_answer": results["no_answer"]
@@ -299,13 +310,33 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         
         error_logs = {
             "accuracy": accuracy,
+            "mean_score": accuracy,
+            "format_valid_count": results["correct"],
+            "evaluated_count": results["total"],
             "errors": results["errors"]
         }
         
-        print(f"\n📊 Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
+        print(
+            f"\n📊 Final Mean Score: {accuracy:.3f} | "
+            f"Format-valid outputs: {results['correct']}/{results['total']}"
+        )
     else:
-        final_results = {"accuracy": 0.0, "correct": 0, "total": 0, "no_answer": 0}
-        error_logs = {"accuracy": 0.0, "errors": results.get("errors", [])}
+        final_results = {
+            "accuracy": 0.0,
+            "mean_score": 0.0,
+            "format_valid_count": 0,
+            "evaluated_count": 0,
+            "correct": 0,
+            "total": 0,
+            "no_answer": 0,
+        }
+        error_logs = {
+            "accuracy": 0.0,
+            "mean_score": 0.0,
+            "format_valid_count": 0,
+            "evaluated_count": 0,
+            "errors": results.get("errors", []),
+        }
         print(f"\n📊 No valid results!")
         
     return final_results, error_logs
