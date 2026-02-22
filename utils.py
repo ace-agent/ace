@@ -252,7 +252,7 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         # Legacy names kept for backward compatibility:
         # correct/total reflect format-valid outputs, not judge score correctness.
         "correct": 0, "total": 0, "no_answer": 0,
-        "answers": [], "targets": [], "errors": []
+        "answers": [], "targets": [], "errors": [], "failed_samples": []
     }
 
     # Use a wrapper to pass data_processor to the evaluation function
@@ -266,10 +266,16 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         }
 
         for i, future in enumerate(as_completed(future_to_args), 1):
+            args_tuple = future_to_args[future]
+            sample_index = args_tuple[0]
             result, error = future.result()
             
             if error:
                 print(error)
+                results["failed_samples"].append({
+                    "index": sample_index,
+                    "error": error,
+                })
                 continue
 
             if result and result["success"]:
@@ -302,6 +308,7 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
             "mean_score": accuracy,
             "format_valid_count": results["correct"],
             "evaluated_count": results["total"],
+            "failed_count": len(results["failed_samples"]),
             # Legacy fields preserved.
             "correct": results["correct"],
             "total": results["total"],
@@ -313,12 +320,15 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
             "mean_score": accuracy,
             "format_valid_count": results["correct"],
             "evaluated_count": results["total"],
+            "failed_count": len(results["failed_samples"]),
+            "failed_samples": results["failed_samples"],
             "errors": results["errors"]
         }
         
         print(
             f"\n📊 Final Mean Score: {accuracy:.3f} | "
-            f"Format-valid outputs: {results['correct']}/{results['total']}"
+            f"Format-valid outputs: {results['correct']}/{results['total']} | "
+            f"Failed: {len(results['failed_samples'])}"
         )
     else:
         final_results = {
@@ -326,6 +336,7 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
             "mean_score": 0.0,
             "format_valid_count": 0,
             "evaluated_count": 0,
+            "failed_count": len(results["failed_samples"]),
             "correct": 0,
             "total": 0,
             "no_answer": 0,
@@ -335,6 +346,8 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
             "mean_score": 0.0,
             "format_valid_count": 0,
             "evaluated_count": 0,
+            "failed_count": len(results["failed_samples"]),
+            "failed_samples": results.get("failed_samples", []),
             "errors": results.get("errors", []),
         }
         print(f"\n📊 No valid results!")
