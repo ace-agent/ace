@@ -280,7 +280,7 @@ def main():
         print("Using empty playbook as initial playbook\n")
     
     # Initialize ACE
-    api_provider = "sambanova" # or "togehter", "openai"
+    api_provider = "sambanova" # or "together", "openai", "commonstack"
     ace_system = ACE(
         api_provider=api_provider,
         generator_model="DeepSeek-V3.1",  # Or your preferred model

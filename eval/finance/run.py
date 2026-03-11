@@ -30,7 +30,7 @@ def parse_args():
     
     # Model configuration
     parser.add_argument("--api_provider", type=str, default="sambanova",
-                        choices=["sambanova", "together", "openai"], help="API provider")
+                        choices=["sambanova", "together", "openai", "commonstack"], help="API provider")
     parser.add_argument("--generator_model", type=str, 
                         default="DeepSeek-V3.1",
                         help="Model for generator")

@@ -31,14 +31,22 @@ def initialize_clients(api_provider):
         api_key = os.getenv('OPENAI_API_KEY', '')
         if not api_key:
             raise ValueError("OpenAI api key not found in environment variables")
+    elif api_provider == "commonstack":
+        # Use Commonstack API
+        base_url = "https://api.commonstack.ai/v1"
+        api_key = os.getenv('COMMONSTACK_API_KEY', '')
+        if not api_key:
+            raise ValueError("Commonstack api key not found in environment variables")
     else:
-        raise ValueError((f"Invalid api_provider name: {api_provider}. Must be 'sambanova', 'together', or 'openai'"))
+        raise ValueError(
+            f"Invalid api_provider name: {api_provider}. Must be 'sambanova', 'together', 'openai', or 'commonstack'"
+        )
         
     generator_client = openai.OpenAI(api_key=api_key, base_url=base_url)
     reflector_client = openai.OpenAI(api_key=api_key, base_url=base_url)
     curator_client = openai.OpenAI(api_key=api_key, base_url=base_url)
     
-    print("Using Together API for all models")
+    print(f"Using {api_provider} API for all models")
     return generator_client, reflector_client, curator_client
 
 def get_section_slug(section_name):

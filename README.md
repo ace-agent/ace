@@ -98,7 +98,7 @@ from ace import ACE
 from utils import initialize_clients
 
 # Initialize API clients
-api_provider = "sambanova" # or "together", "openai"
+api_provider = "sambanova" # or "together", "openai", "commonstack"
 
 # Initialize ACE system
 ace_system = ACE(
@@ -201,7 +201,7 @@ uv run python -m eval.finance.run \
 | `--save_path` | Directory to save results | Required |
 | `--initial_playbook_path` | Path to initial playbook | Optional |
 | `--mode` | Run mode: 'offline' for offline training with validation, 'online' for online training and testing on test split, 'eval_only' for evaluation only | `offline` |
-| `--api_provider` | API provider for LLM calls. Choose from ['sambanova', 'together', 'openai'] | `sambanova` |
+| `--api_provider` | API provider for LLM calls. Choose from ['sambanova', 'together', 'openai', 'commonstack'] | `sambanova` |
 | `--num_epochs` | Number of training epochs | 1 |
 | `--max_num_rounds` | Max reflection rounds for incorrect answers | 3 |
 | `--curator_frequency` | Run curator every N steps | 1 |
