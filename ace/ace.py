@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 
-from .core import Generator, Reflector, Curator, BulletpointAnalyzer
+from .core import Generator, Reflector, Curator, BulletpointAnalyzer, Retriever
 from playbook_utils import *
 from logger import *
 from utils import *
@@ -39,7 +39,9 @@ class ACE:
         max_tokens: int = 4096,
         initial_playbook: Optional[str] = None,
         use_bulletpoint_analyzer: bool = False,
-        bulletpoint_analyzer_threshold: float = 0.90
+        bulletpoint_analyzer_threshold: float = 0.90,
+        retriever_top_k: int = 5,
+        retriever_model_name: str = "intfloat/multilingual-e5-large"
     ):
         """
         Initialize the ACE system.
@@ -53,6 +55,8 @@ class ACE:
             initial_playbook: Initial playbook content (optional)
             use_bulletpoint_analyzer: Whether to use bulletpoint analyzer for deduplication
             bulletpoint_analyzer_threshold: Similarity threshold for bulletpoint analyzer (0-1)
+            retriever_top_k: Number of top bullets to retrieve per sample
+            retriever_model_name: Sentence-transformers model for retrieval embeddings
         """
         # Initialize API clients
         generator_client, reflector_client, curator_client = initialize_clients(api_provider)
@@ -61,6 +65,7 @@ class ACE:
         self.generator = Generator(generator_client, api_provider, generator_model, max_tokens)
         self.reflector = Reflector(reflector_client, api_provider, reflector_model, max_tokens)
         self.curator = Curator(curator_client, api_provider, curator_model, max_tokens)
+        self.retriever = Retriever(model_name=retriever_model_name, top_k=retriever_top_k)
         
         # Initialize bulletpoint analyzer if requested and available
         self.use_bulletpoint_analyzer = use_bulletpoint_analyzer
@@ -131,7 +136,10 @@ class ACE:
             'save_dir': config.get('save_dir', './results'),
             'test_workers': config.get('test_workers', 20),
             'use_bulletpoint_analyzer': config.get('use_bulletpoint_analyzer', False),
-            'bulletpoint_analyzer_threshold': config.get('bulletpoint_analyzer_threshold', 0.90)
+            'bulletpoint_analyzer_threshold': config.get('bulletpoint_analyzer_threshold', 0.90),
+            'use_retriever': config.get('use_retriever', False),
+            'retriever_top_k': config.get('retriever_top_k', 5),
+            'retriever_model_name': config.get('retriever_model_name', 'intfloat/multilingual-e5-large')
         }
     
     def _setup_paths(self, save_dir: str, task_name: str, mode: str) -> Tuple[str, str]:
@@ -290,7 +298,8 @@ class ACE:
                     config=config,
                     log_dir=log_dir,
                     save_path=save_path,
-                    prefix="final"
+                    prefix="final",
+                    use_retriever=True
                 )
                 results['final_test_results'] = final_test_results
                 print(f"Final Test Accuracy: {final_test_results['accuracy']:.3f}\n")
@@ -340,7 +349,8 @@ class ACE:
                 config=config,
                 log_dir=log_dir,
                 save_path=save_path,
-                prefix="test"
+                prefix="test",
+                use_retriever=config.get('use_retriever', False)
             )
             results['test_results'] = test_results
         
@@ -377,7 +387,8 @@ class ACE:
         config: Dict[str, Any],
         log_dir: str,
         save_path: str,
-        prefix: str = "test"
+        prefix: str = "test",
+        use_retriever: bool = False
     ) -> Dict[str, Any]:
         """
         Run testing
@@ -390,6 +401,7 @@ class ACE:
             log_dir: Directory for detailed logs
             save_path: Path to save results
             prefix: Prefix for saved files (e.g., 'initial', 'final', 'test')
+            use_retriever: If True, use retriever to build per-sample mini playbooks
             
         Returns:
             Dictionary with test results
@@ -397,6 +409,11 @@ class ACE:
         config_params = self._extract_config_params(config)
         use_json_mode = config_params['use_json_mode']
         test_workers = config_params['test_workers']
+
+        retriever = None
+        if use_retriever:
+            self.retriever.index_playbook(playbook)
+            retriever = self.retriever
         
         test_results, test_error_log = evaluate_test_set(
             data_processor,
@@ -406,7 +423,8 @@ class ACE:
             self.max_tokens,
             log_dir,
             max_workers=test_workers,
-            use_json_mode=use_json_mode
+            use_json_mode=use_json_mode,
+            retriever=retriever
         )
 
         # Save test results
@@ -459,7 +477,7 @@ class ACE:
         question = task_dict.get("question", "")
         context = task_dict.get("context", "")
         target = task_dict.get("target", "")
-        
+
         # STEP 1: Initial generation (pre-train)
         print("Generating initial answer...")
         gen_response, bullet_ids, call_info = self.generator.generate(
@@ -525,7 +543,7 @@ class ACE:
                     self.playbook = update_bullet_counts(
                         self.playbook, bullet_tags
                     )
-                
+
                 # Regenerate with reflection
                 gen_response, bullet_ids, _ = self.generator.generate(
                     question=question,
@@ -604,7 +622,7 @@ class ACE:
                     threshold=self.bulletpoint_analyzer_threshold,
                     merge=True
                 )
-        
+
         # STEP 4: Post-curator generation
         gen_response, _, _ = self.generator.generate(
             question=question,

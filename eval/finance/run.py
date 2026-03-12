@@ -75,6 +75,12 @@ def parse_args():
     parser.add_argument("--bulletpoint_analyzer_threshold", type=float, default=0.90,
                         help="Similarity threshold for bulletpoint analyzer (0-1, default: 0.90)")
     
+    # Retriever configuration — passing --retriever_top_k enables retrieval
+    parser.add_argument("--retriever_top_k", type=int, default=None,
+                        help="Number of top bullets to retrieve per question. Enables retrieval when set.")
+    parser.add_argument("--retriever_model_name", type=str, default="intfloat/multilingual-e5-large",
+                        help="Sentence-transformers model for retrieval embeddings")
+    
     # Output configuration
     parser.add_argument("--save_path", type=str, required=True,
                         help="Directory to save results")
@@ -202,7 +208,9 @@ def main():
         max_tokens=args.max_tokens,
         initial_playbook=initial_playbook,
         use_bulletpoint_analyzer=args.use_bulletpoint_analyzer,
-        bulletpoint_analyzer_threshold=args.bulletpoint_analyzer_threshold
+        bulletpoint_analyzer_threshold=args.bulletpoint_analyzer_threshold,
+        retriever_top_k=args.retriever_top_k or 5,
+        retriever_model_name=args.retriever_model_name
     )
     
     # Prepare configuration
@@ -223,7 +231,10 @@ def main():
         'initial_playbook_path': args.initial_playbook_path,
         'use_bulletpoint_analyzer': args.use_bulletpoint_analyzer,
         'bulletpoint_analyzer_threshold': args.bulletpoint_analyzer_threshold,
-        'api_provider': args.api_provider
+        'api_provider': args.api_provider,
+        'use_retriever': args.retriever_top_k is not None,
+        'retriever_top_k': args.retriever_top_k,
+        'retriever_model_name': args.retriever_model_name
     }
     
     # Execute using the unified run method

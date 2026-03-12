@@ -369,3 +369,17 @@ def extract_playbook_bullets(playbook_text, bullet_ids):
         formatted_bullets.append(f"[{bullet['id']}] helpful={bullet['helpful']} harmful={bullet['harmful']} :: {bullet['content']}")
     
     return '\n'.join(formatted_bullets)
+
+
+def extract_all_bullets(playbook_text):
+    """
+    Extract all bullet points from playbook.
+    """
+    lines = playbook_text.strip().split('\n')
+    all_bullets = []
+    for line in lines:
+        if line.strip():
+            parsed = parse_playbook_line(line)
+            if parsed:
+                all_bullets.append(parsed)
+    return all_bullets

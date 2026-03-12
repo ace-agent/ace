@@ -124,8 +124,10 @@ config = {
     'save_dir': './results',
     'test_workers': 20,
     'use_bulletpoint_analyzer': false,
-    'api_provider': api_provider
-
+    'api_provider': api_provider,
+    'use_retriever': False,
+    'retriever_top_k': 10,
+    'retriever_model_name': 'intfloat/multilingual-e5-large'
 }
 
 # Offline adaptation
@@ -181,6 +183,14 @@ uv run python -m eval.finance.run \
     --initial_playbook_path results/ace_run_TIMESTAMP_finer_offline/best_playbook.txt \
     --save_path test_results
 
+# Evaluation with retrieval-based sub-playbooks (top-k bullets per sample)
+python -m eval.finance.run \
+    --task_name finer \
+    --mode eval_only \
+    --initial_playbook_path results/ace_run_TIMESTAMP_finer_offline/best_playbook.txt \
+    --retriever_top_k 10 \
+    --save_path test_results_topk10
+
 # Training with custom configuration
 uv run python -m eval.finance.run \
     --task_name finer \
@@ -218,6 +228,8 @@ uv run python -m eval.finance.run \
 | `--no_ground_truth` | Don't use ground truth in reflection | False |
 | `--use_bulletpoint_analyzer` | Enable bulletpoint analyzer for playbook deduplication and merging | False |
 | `--bulletpoint_analyzer_threshold` | Similarity threshold for bulletpoint analyzer (0-1) | 0.9 |
+| `--retriever_top_k` | Number of top bullets to retrieve per sample. Enables retrieval when set. | None (disabled) |
+| `--retriever_model_name` | Sentence-transformers model for retrieval embeddings | `intfloat/multilingual-e5-large` |
 
 </details>
 

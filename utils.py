@@ -160,19 +160,26 @@ def count_tokens(prompt: str) -> int:
     return len(enc.encode(prompt))
 
 
-def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
+def evaluate_single_test_sample(args_tuple, data_processor, retriever=None) -> Tuple[Dict, str]:
     """
     Evaluate a single test sample - task-agnostic implementation.
     
     Args:
         args_tuple: Tuple of (index, task_dict, generator, playbook, max_tokens, log_dir, use_json_mode)
         data_processor: DataProcessor instance with answer_is_correct method
+        retriever: Optional Retriever instance. When provided, retrieves a per-sample
+                   mini playbook instead of using the full playbook.
     """
     (i, task_dict, generator, playbook, max_tokens, log_dir, use_json_mode) = args_tuple
     try:
         context = task_dict["context"]
         question = task_dict["question"]
         target = task_dict["target"]
+
+        sub_playbook_tokens = None
+        if retriever is not None:
+            playbook = retriever.retrieve(question, context)
+            sub_playbook_tokens = count_tokens(playbook)
 
         gen_response, bullet_ids, call_info = generator.generate(
             question=question,
@@ -187,13 +194,17 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
         final_answer = extract_answer(gen_response)
         is_correct = data_processor.answer_is_correct(final_answer, target)
 
-        return {
+        result = {
             "index": i,
             "final_answer": final_answer,
             "target": target,
             "is_correct": is_correct,
             "success": True
-        }, None
+        }
+        if sub_playbook_tokens is not None:
+            result["sub_playbook_tokens"] = sub_playbook_tokens
+
+        return result, None
 
     except Exception as e:
         return None, f"Error evaluating sample {i}: {type(e).__name__}: {str(e)}"
@@ -201,25 +212,29 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
 
 def evaluate_test_set(data_processor, generator, playbook, test_samples,
                       max_tokens=4096, log_dir=None, max_workers=20, 
-                      use_json_mode=False) -> Tuple[Dict, Dict]:
+                      use_json_mode=False, retriever=None) -> Tuple[Dict, Dict]:
     """
     Parallel evaluation of test set - task-agnostic implementation.
     
     Args:
         data_processor: DataProcessor instance with answer_is_correct and evaluate_accuracy methods
         generator: Generator instance
-        playbook: Current playbook string
+        playbook: Current playbook string (used as fallback when retriever is None)
         test_samples: List of test samples
         max_tokens: Max tokens for generation
         log_dir: Directory for logs
         max_workers: Number of parallel workers
         use_json_mode: Whether to use JSON mode
+        retriever: Optional Retriever instance (already indexed). When provided,
+                   each sample gets a per-sample mini playbook via retrieval.
         
     Returns:
         Tuple of (results_dict, error_logs_dict)
     """
     print(f"\n{'='*40}")
     print(f"EVALUATING TEST SET - {len(test_samples)} samples, {max_workers} workers")
+    if retriever is not None:
+        print(f"  Using retriever (top_k={retriever.top_k})")
     print(f"{'='*40}")
 
     args_list = [
@@ -229,12 +244,12 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
 
     results = {
         "correct": 0, "total": 0, "no_answer": 0,
-        "answers": [], "targets": [], "errors": []
+        "answers": [], "targets": [], "errors": [],
+        "sub_playbook_token_counts": []
     }
 
-    # Use a wrapper to pass data_processor to the evaluation function
     def eval_wrapper(args_tuple):
-        return evaluate_single_test_sample(args_tuple, data_processor)
+        return evaluate_single_test_sample(args_tuple, data_processor, retriever=retriever)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_args = {
@@ -254,6 +269,9 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
                 results["total"] += 1
                 results["answers"].append(result["final_answer"])
                 results["targets"].append(result["target"])
+
+                if "sub_playbook_tokens" in result:
+                    results["sub_playbook_token_counts"].append(result["sub_playbook_tokens"])
                 
                 if not result["is_correct"]:
                     results["errors"].append({
@@ -278,16 +296,22 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
             "total": results["total"],
             "no_answer": results["no_answer"]
         }
+
+        token_counts = results["sub_playbook_token_counts"]
+        if token_counts:
+            avg_tokens = round(sum(token_counts) / len(token_counts), 1)
+            final_results["avg_sub_playbook_tokens"] = avg_tokens
+            print(f"\n  Avg sub-playbook tokens: {avg_tokens}")
         
         error_logs = {
             "accuracy": accuracy,
             "errors": results["errors"]
         }
         
-        print(f"\n📊 Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
+        print(f"\n  Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
     else:
-        results = {"accuracy": 0.0, "correct": 0, "total": 0}
+        final_results = {"accuracy": 0.0, "correct": 0, "total": 0}
         error_logs = {}
-        print(f"\n📊 No valid results!")
+        print(f"\n  No valid results!")
         
     return final_results, error_logs
