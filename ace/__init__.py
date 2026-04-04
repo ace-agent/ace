@@ -46,8 +46,9 @@ Usage:
 """
 
 from .ace import ACE
+from .ace_batch import ACEBatch
 from .core import Generator, Reflector, Curator, BulletpointAnalyzer
 
-__all__ = ['ACE', 'Generator', 'Reflector', 'Curator', 'BulletpointAnalyzer']
+__all__ = ['ACE', 'ACEBatch', 'Generator', 'Reflector', 'Curator', 'BulletpointAnalyzer']
 
 __version__ = "1.0.0"

@@ -3,7 +3,7 @@ import json
 import argparse
 from .data_processor import DataProcessor, load_data
 
-from ace import ACE
+from ace import ACE, ACEBatch
 
 
 def parse_args():
@@ -47,6 +47,16 @@ def parse_args():
                         help="Update playbook every N samples for evaluation in online mode")
     parser.add_argument("--save_steps", type=int, default=50,
                         help="Save intermediate playbooks every N steps")
+    parser.add_argument("--batch_size", type=int, default=1,
+                        help="Generator mini-batch size; >1 uses batched ACE")
+    parser.add_argument("--curator_batch_size", type=int, default=None,
+                        help="Curator chunk size (default: same as --batch_size)")
+    parser.add_argument(
+        "--augmented_shuffling",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Batched ACE: duplicate+shuffle reflections before curator (default: on)",
+    )
 
     # System configuration
     parser.add_argument("--max_tokens", type=int, default=4096,
@@ -169,8 +179,8 @@ def main():
     else:
         print("Using empty playbook as initial playbook\n")
 
-    # Create ACE system
-    ace_system = ACE(
+    AceCls = ACEBatch if args.batch_size > 1 else ACE
+    ace_system = AceCls(
         api_provider=args.api_provider,
         generator_model=args.generator_model,
         reflector_model=args.reflector_model,
@@ -199,7 +209,10 @@ def main():
         'initial_playbook_path': args.initial_playbook_path,
         'use_bulletpoint_analyzer': args.use_bulletpoint_analyzer,
         'bulletpoint_analyzer_threshold': args.bulletpoint_analyzer_threshold,
-        'api_provider': args.api_provider
+        'api_provider': args.api_provider,
+        'batch_size': args.batch_size,
+        'curator_batch_size': args.curator_batch_size,
+        'augmented_shuffling': args.augmented_shuffling,
     }
 
     # If skip_initial_test, don't pass test_samples during offline training
