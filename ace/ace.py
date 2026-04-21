@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 
 from .core import Generator, Reflector, Curator, BulletpointAnalyzer
+from .prompts import PromptConfig, load_prompts
 from playbook_utils import *
 from logger import *
 from utils import *
@@ -39,11 +40,12 @@ class ACE:
         max_tokens: int = 4096,
         initial_playbook: Optional[str] = None,
         use_bulletpoint_analyzer: bool = False,
-        bulletpoint_analyzer_threshold: float = 0.90
+        bulletpoint_analyzer_threshold: float = 0.90,
+        prompt_config: Optional[PromptConfig] = None
     ):
         """
         Initialize the ACE system.
-        
+
         Args:
             api_provider: API provider for LLM calls
             generator_model: Model name for generator
@@ -53,14 +55,30 @@ class ACE:
             initial_playbook: Initial playbook content (optional)
             use_bulletpoint_analyzer: Whether to use bulletpoint analyzer for deduplication
             bulletpoint_analyzer_threshold: Similarity threshold for bulletpoint analyzer (0-1)
+            prompt_config: PromptConfig with custom prompts (optional, uses defaults if None)
         """
+        # Load default prompts if none provided
+        if prompt_config is None:
+            prompt_config = load_prompts()
+
         # Initialize API clients
         generator_client, reflector_client, curator_client = initialize_clients(api_provider)
 
-        # Initialize the three agents
-        self.generator = Generator(generator_client, api_provider, generator_model, max_tokens)
-        self.reflector = Reflector(reflector_client, api_provider, reflector_model, max_tokens)
-        self.curator = Curator(curator_client, api_provider, curator_model, max_tokens)
+        # Initialize the three agents with prompts from config
+        self.generator = Generator(
+            generator_client, api_provider, generator_model, max_tokens,
+            generator_prompt=prompt_config.generator_prompt
+        )
+        self.reflector = Reflector(
+            reflector_client, api_provider, reflector_model, max_tokens,
+            reflector_prompt=prompt_config.reflector_prompt,
+            reflector_prompt_no_gt=prompt_config.reflector_prompt_no_gt
+        )
+        self.curator = Curator(
+            curator_client, api_provider, curator_model, max_tokens,
+            curator_prompt=prompt_config.curator_prompt,
+            curator_prompt_no_gt=prompt_config.curator_prompt_no_gt
+        )
         
         # Initialize bulletpoint analyzer if requested and available
         self.use_bulletpoint_analyzer = use_bulletpoint_analyzer

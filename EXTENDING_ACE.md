@@ -7,31 +7,44 @@ This guide provides detailed instructions for adding new tasks to the ACE framew
 Understanding the codebase structure will help you navigate and extend ACE effectively:
 
 ```
-ACE-pre-release/
+ace/
 ├── ace/                         # Core ACE framework
 │   ├── core/                    # Agent implementations
 │   │   ├── __init__.py
 │   │   ├── generator.py         # Generator agent
 │   │   ├── reflector.py         # Reflector agent
 │   │   ├── curator.py           # Curator agent
-│   │   └── bulletpoint_analyzer.py       # Bulletpoint analyzer for playbook de-duplication
+│   │   └── bulletpoint_analyzer.py  # Bulletpoint analyzer for playbook de-duplication
 │   ├── prompts/                 # Prompt templates
 │   │   ├── __init__.py
-│   │   ├── generator.py         # Generator prompts
-│   │   ├── reflector.py         # Reflector prompts
-│   │   └── curator.py           # Curator prompts
+│   │   ├── config.py            # PromptConfig dataclass
+│   │   ├── loader.py            # Prompt loader with task-specific override support
+│   │   ├── generator.py         # Default generator prompts
+│   │   ├── reflector.py         # Default reflector prompts
+│   │   └── curator.py           # Default curator prompts
 │   ├── __init__.py
 │   └── ace.py                   # Main ACE orchestrator
 │
-├── finance/                     # Finance domain implementation (reference example)
-│   ├── data_processor.py        # Finance data processing
-│   └── run.py                   # Unified training and evaluation script
+├── eval/                        # Evaluation tasks
+│   ├── finance/                 # Finance domain implementation (reference example)
+│   │   ├── data/                # Task data and config
+│   │   ├── data_processor.py    # Finance data processing
+│   │   ├── run.py               # Unified training and evaluation script
+│   │   └── prompts/             # (Optional) Task-specific prompts
+│   ├── mind2web/                # Mind2Web task implementation
+│   │   ├── data/
+│   │   ├── data_processor.py
+│   │   └── run.py
+│   └── mind2web2/               # Mind2Web variant (50 candidates)
+│       ├── data/
+│       ├── data_processor.py
+│       └── run.py
 │
 ├── llm.py                       # LLM utilities
 ├── logger.py                    # Logging utilities
-├── utils.py                     # General utilities 
+├── utils.py                     # General utilities
 ├── playbook_utils.py            # Playbook operations
-├── requirements.txt             # Dependencies
+├── pyproject.toml               # Project dependencies (uv)
 ├── .env.example                 # Environment template
 ├── README.md                    # Main documentation
 └── EXTENDING_ACE.md             # This file
@@ -54,23 +67,23 @@ Or with custom field names:
 {"input": "question text", "output": "answer", "metadata": {...}}
 ```
 
-Create a configuration file (e.g., `your_task/data/task_config.json`):
+Create a configuration file (e.g., `eval/your_task/data/sample_config.json`):
 ```json
 {
     "your_task_name": {
-        "train_data": "./your_task/data/train.jsonl",
-        "val_data": "./your_task/data/val.jsonl",
-        "test_data": "./your_task/data/test.jsonl"
+        "train_data": "./eval/your_task/data/train.jsonl",
+        "val_data": "./eval/your_task/data/val.jsonl",
+        "test_data": "./eval/your_task/data/test.jsonl"
     }
 }
 ```
 
 ### Step 2: Create a Data Processor
 
-Create `your_task/data_processor.py` with a `DataProcessor` class. You only need to implement **3 simple methods**:
+Create `eval/your_task/data_processor.py` with a `DataProcessor` class. You only need to implement **3 simple methods**:
 
 ```python
-# your_task/data_processor.py
+# eval/your_task/data_processor.py
 import os
 import json
 from typing import List, Dict, Any, Tuple
@@ -185,7 +198,7 @@ class DataProcessor:
 
 ### Step 3: Create a Training Script
 
-Create `your_task/run.py`:
+Create `eval/your_task/run.py`:
 
 ```python
 #!/usr/bin/env python3
@@ -196,6 +209,7 @@ from datetime import datetime
 from .data_processor import DataProcessor, load_data
 
 from ace import ACE
+from ace.prompts import load_prompts
 from utils import initialize_clients
 
 
@@ -209,47 +223,49 @@ def parse_args():
                              "'online' for online training, 'eval_only' for evaluation only")
     parser.add_argument("--save_path", type=str, required=True)
     parser.add_argument("--initial_playbook_path", type=str, default=None)
-    parser.add_argument("--config_path", type=str, default="./your_task/data/task_config.json")
-    # Add other arguments as needed (see finance/run.py for full list)
+    parser.add_argument("--task_prompts_dir", type=str, default=None,
+                        help="Path to task-specific prompts directory. "
+                             "If not specified, uses default prompts.")
+    # Add other arguments as needed (see eval/finance/run.py for full list)
     return parser.parse_args()
 
 
 def preprocess_data(task_name, config, mode):
     """Load and preprocess data."""
     processor = DataProcessor(task_name=task_name)
-    
+
     # For online and eval_only modes, only load test data
     if mode in ["online", "eval_only"]:
         train_samples = None
         val_samples = None
-        
+
         if "test_data" in config:
             test_samples = load_data(config["test_data"])
             test_samples = processor.process_task_data(test_samples)
         else:
             raise ValueError(f"{mode} mode requires test data in config.")
-        
+
         if mode == "online":
             print(f"Online mode: Training and testing on {len(test_samples)} examples")
         else:
             print(f"Eval only mode: Testing on {len(test_samples)} examples")
-    
+
     # For offline mode, load train, val, and optionally test data
     else:
         train_samples = load_data(config["train_data"])
         val_samples = load_data(config["val_data"])
         train_samples = processor.process_task_data(train_samples)
         val_samples = processor.process_task_data(val_samples)
-        
+
         if "test_data" in config:
             test_samples = load_data(config["test_data"])
             test_samples = processor.process_task_data(test_samples)
         else:
             test_samples = []
-        
+
         print(f"Offline mode: Training on {len(train_samples)} examples, "
               f"validating on {len(val_samples)}, testing on {len(test_samples)}")
-    
+
     return train_samples, val_samples, test_samples, processor
 
 
@@ -263,33 +279,37 @@ def load_initial_playbook(path):
 
 def main():
     args = parse_args()
-    
+
     # Load task configuration
-    with open(args.config_path, 'r') as f:
+    with open("./eval/your_task/data/sample_config.json", 'r') as f:
         task_config = json.load(f)
-    
+
     # Preprocess data
     train_samples, val_samples, test_samples, data_processor = \
         preprocess_data(args.task_name, task_config[args.task_name], args.mode)
-    
+
     # Load initial playbook (or use empty if None provided)
     initial_playbook = load_initial_playbook(args.initial_playbook_path)
     if initial_playbook:
         print(f"Loaded initial playbook from {args.initial_playbook_path}\n")
     else:
         print("Using empty playbook as initial playbook\n")
-    
+
+    # Load prompts - uses task-specific if provided, otherwise defaults
+    prompt_config = load_prompts(task_prompts_dir=args.task_prompts_dir)
+
     # Initialize ACE
-    api_provider = "sambanova" # or "together", "openai", "commonstack"
+    api_provider = "sambanova"  # or "together", "openai", "commonstack"
     ace_system = ACE(
         api_provider=api_provider,
         generator_model="DeepSeek-V3.1",  # Or your preferred model
         reflector_model="DeepSeek-V3.1",
         curator_model="DeepSeek-V3.1",
         max_tokens=4096,
-        initial_playbook=initial_playbook
+        initial_playbook=initial_playbook,
+        prompt_config=prompt_config
     )
-    
+
     # Configure
     config = {
         'num_epochs': 1,
@@ -306,10 +326,10 @@ def main():
         'save_dir': args.save_path,
         'test_workers': 20,
         'initial_playbook_path': args.initial_playbook_path,
-        'use_bulletpoint_analyzer': false,   # Turn on for playbook bulletpoints de-duplication and merging
+        'use_bulletpoint_analyzer': False,  # Turn on for playbook bulletpoints de-duplication and merging
         'api_provider': api_provider
     }
-    
+
     # Run using the unified interface
     results = ace_system.run(
         mode=args.mode,
@@ -319,7 +339,7 @@ def main():
         data_processor=data_processor,
         config=config
     )
-   
+
 
 if __name__ == "__main__":
     main()
@@ -329,26 +349,30 @@ if __name__ == "__main__":
 
 ```bash
 # Offline training (with automatic initial and final testing)
-python -m your_task.run \
+uv run python -m eval.your_task.run \
     --task_name your_task_name \
     --mode offline \
-    --save_path results \
-    --config_path ./your_task/data/task_config.json
+    --save_path results
 
 # Online training and testing
-python -m your_task.run \
+uv run python -m eval.your_task.run \
     --task_name your_task_name \
     --mode online \
-    --save_path results \
-    --config_path ./your_task/data/task_config.json
+    --save_path results
 
 # Evaluation only (test a pre-trained playbook)
-python -m your_task.run \
+uv run python -m eval.your_task.run \
     --task_name your_task_name \
     --mode eval_only \
     --initial_playbook_path results/ace_run_timestamp/best_playbook.txt \
-    --save_path test_results \
-    --config_path ./your_task/data/task_config.json
+    --save_path test_results
+
+# With custom task-specific prompts
+uv run python -m eval.your_task.run \
+    --task_name your_task_name \
+    --mode offline \
+    --save_path results \
+    --task_prompts_dir ./eval/your_task/prompts
 ```
 
 ## Key Implementation Notes
@@ -393,47 +417,191 @@ You can use any OpenAI-compatible model by changing the model names in the train
 
 ## Customizing Prompts
 
-To adapt ACE's prompts to your domain, modify the prompt templates in `ace/prompts/`:
+ACE supports **task-specific prompts** that override the default prompts without modifying the core framework. This allows you to customize prompts for different domains while keeping the base ACE code unchanged.
 
-```python
-# ace/prompts/generator.py
-# Customize the generator system prompt for your domain
+### Task-Specific Prompts Directory
 
-# ace/prompts/reflector.py  
-# Customize the reflector's evaluation criteria
+Create a `prompts/` directory under your task folder:
 
-# ace/prompts/curator.py
-# Customize how insights are curated into the playbook
+```
+eval/your_task/
+├── data/
+│   └── sample_config.json
+├── data_processor.py
+├── run.py
+└── prompts/                    # Optional - only create if customizing
+    ├── generator.py            # Optional - define GENERATOR_PROMPT
+    ├── reflector.py            # Optional - define REFLECTOR_PROMPT, REFLECTOR_PROMPT_NO_GT
+    └── curator.py              # Optional - define CURATOR_PROMPT, CURATOR_PROMPT_NO_GT
 ```
 
-### Example: Domain-Specific Generator Prompt
+**Important**: You only need to create files for the prompts you want to override. Missing prompts will automatically fall back to the defaults in `ace/prompts/`.
+
+### Using Task-Specific Prompts
+
+Pass the `--task_prompts_dir` argument when running your task:
+
+```bash
+# Use custom prompts
+uv run python -m eval.your_task.run \
+    --task_name your_task_name \
+    --mode offline \
+    --save_path results \
+    --task_prompts_dir ./eval/your_task/prompts
+```
+
+Or load prompts programmatically:
 
 ```python
-# In ace/prompts/generator.py
+from ace import ACE
+from ace.prompts import load_prompts
 
-MEDICAL_GENERATOR_PROMPT = """
-You are a medical AI assistant specializing in clinical decision support.
-When answering questions:
-1. Always prioritize patient safety
-2. Cite medical evidence when available
-3. Acknowledge uncertainty when appropriate
-4. Consider differential diagnoses
+# Load task-specific prompts (with fallback to defaults)
+prompt_config = load_prompts(task_prompts_dir="./eval/your_task/prompts")
 
-{playbook}
+# Initialize ACE with custom prompts
+ace_system = ACE(
+    api_provider="sambanova",
+    generator_model="DeepSeek-V3.1",
+    reflector_model="DeepSeek-V3.1",
+    curator_model="DeepSeek-V3.1",
+    prompt_config=prompt_config
+)
+```
 
-Question: {question}
-Context: {context}
+### Example: Custom Generator Prompt
+
+Create `eval/your_task/prompts/generator.py`:
+
+```python
+# eval/your_task/prompts/generator.py
+
+GENERATOR_PROMPT = """You are a medical AI assistant specializing in clinical decision support.
+
+**Instructions:**
+- Always prioritize patient safety
+- Cite medical evidence when available
+- Acknowledge uncertainty when appropriate
+- Consider differential diagnoses
+- Apply relevant strategies from the playbook
+
+Your output should be a json object with these fields:
+- reasoning: your detailed analysis
+- bullet_ids: relevant playbook bullet IDs used
+- final_answer: your concise final answer
+
+**Playbook:**
+{}
+
+**Reflection:**
+{}
+
+**Question:**
+{}
+
+**Context:**
+{}
+
+**Answer in JSON format:**
+{{
+  "reasoning": "[Your analysis]",
+  "bullet_ids": ["med-00001"],
+  "final_answer": "[Your answer]"
+}}
 """
+```
+
+### Example: Custom Reflector Prompt
+
+Create `eval/your_task/prompts/reflector.py`:
+
+```python
+# eval/your_task/prompts/reflector.py
+
+REFLECTOR_PROMPT = """You are a medical expert reviewing AI-generated diagnoses.
+
+Analyze the model's reasoning and identify:
+- Clinical reasoning errors
+- Missed differential diagnoses
+- Safety concerns
+- Evidence quality issues
+
+**Question:**
+{}
+
+**Model's Reasoning:**
+{}
+
+**Model's Answer:**
+{}
+
+**Ground Truth:**
+{}
+
+**Environment Feedback:**
+{}
+
+**Playbook Bullets Used:**
+{}
+
+**Your Analysis (JSON):**
+{{
+  "reasoning": "[Your analysis]",
+  "error_identification": "[What went wrong]",
+  "root_cause_analysis": "[Why it went wrong]",
+  "correct_approach": "[Better approach]",
+  "key_insight": "[Lesson learned]",
+  "bullet_tags": [{{"id": "med-00001", "tag": "helpful"}}]
+}}
+"""
+
+# Only define this if you also need a no-ground-truth variant
+REFLECTOR_PROMPT_NO_GT = """..."""
+```
+
+### Prompt Variables
+
+The default prompts use `{}` placeholders that get filled via `.format()`. Ensure your custom prompts have the same number and order of placeholders:
+
+| Prompt | Placeholders (in order) |
+|--------|------------------------|
+| `GENERATOR_PROMPT` | playbook, reflection, question, context |
+| `REFLECTOR_PROMPT` | question, reasoning_trace, predicted_answer, ground_truth, environment_feedback, bullets_used |
+| `REFLECTOR_PROMPT_NO_GT` | question, reasoning_trace, predicted_answer, environment_feedback, bullets_used |
+| `CURATOR_PROMPT` | Uses named placeholders: `{current_step}`, `{total_samples}`, `{token_budget}`, `{playbook_stats}`, `{recent_reflection}`, `{current_playbook}`, `{question_context}` |
+| `CURATOR_PROMPT_NO_GT` | Same as `CURATOR_PROMPT` |
+
+### A/B Testing Prompts
+
+The task-specific prompts feature makes it easy to A/B test different prompt versions:
+
+```bash
+# Test prompt version 1
+uv run python -m eval.your_task.run \
+    --task_name your_task_name \
+    --save_path results_v1 \
+    --task_prompts_dir ./prompts_v1
+
+# Test prompt version 2
+uv run python -m eval.your_task.run \
+    --task_name your_task_name \
+    --save_path results_v2 \
+    --task_prompts_dir ./prompts_v2
 ```
 
 ## Reference Implementation
 
-The `finance/` directory contains a complete working example of a custom task implementation. Use it as a reference for:
+The `eval/finance/` directory contains a complete working example of a custom task implementation. Use it as a reference for:
 
 - Data preprocessing with multiple parsing strategies (`parse_instruction_and_input`, `parse_context_and_question_formula`)
 - Task-specific evaluation logic (`_finer_answer_is_correct`, `_formula_answer_is_correct`)
 - Handling different data formats and answer types
 - Using the unified `run()` interface with different modes
+- Task-specific prompts configuration (via `--task_prompts_dir`)
+
+Other reference implementations:
+- `eval/mind2web/` - Web navigation task with element selection
+- `eval/mind2web2/` - Variant with larger candidate pool (50 candidates)
 
 ## Troubleshooting
 
@@ -443,12 +611,14 @@ The `finance/` directory contains a complete working example of a custom task im
 2. **Data format mismatches**: Verify your `process_task_data` returns the correct dictionary structure
 3. **Evaluation errors**: Check that `answer_is_correct` handles edge cases (empty strings, None values, etc.)
 4. **Memory issues**: Reduce `test_workers` parameter if running into memory constraints
+5. **Custom prompts not loading**: Verify the `--task_prompts_dir` path exists and contains properly named Python files (`generator.py`, `reflector.py`, `curator.py`) with the correct variable names (`GENERATOR_PROMPT`, etc.)
+6. **Prompt placeholder errors**: Ensure your custom prompts have the same number and order of `{}` placeholders as the default prompts
 
 ### Getting Help
 
 - **Issues**: Open an issue on GitHub with details about your task and error messages
 - **Discussions**: Join the [GitHub Discussions](../../discussions) for implementation questions
-- **Examples**: Check the `finance/` directory for working reference implementations
+- **Examples**: Check the `eval/finance/` directory for working reference implementations
 
 
 ---

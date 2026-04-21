@@ -14,21 +14,27 @@ class Reflector:
     Reflector agent that analyzes the generator's reasoning and tags
     bullets as helpful, harmful, or neutral.
     """
-    
-    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096):
+
+    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096,
+                 reflector_prompt: Optional[str] = None,
+                 reflector_prompt_no_gt: Optional[str] = None):
         """
         Initialize the Reflector agent.
-        
+
         Args:
             api_client: OpenAI client for LLM calls
             api_provider: API provider for LLM calls
             model: Model name to use for reflection
             max_tokens: Maximum tokens for reflection
+            reflector_prompt: Custom reflector prompt (optional, uses default if None)
+            reflector_prompt_no_gt: Custom reflector prompt without ground truth (optional)
         """
         self.api_client = api_client
         self.api_provider = api_provider
         self.model = model
         self.max_tokens = max_tokens
+        self.reflector_prompt = reflector_prompt or REFLECTOR_PROMPT
+        self.reflector_prompt_no_gt = reflector_prompt_no_gt or REFLECTOR_PROMPT_NO_GT
     
     def reflect(
         self,
@@ -63,7 +69,7 @@ class Reflector:
         """
         # Select the appropriate prompt
         if use_ground_truth and ground_truth:
-            prompt = REFLECTOR_PROMPT.format(
+            prompt = self.reflector_prompt.format(
                 question,
                 reasoning_trace,
                 predicted_answer,
@@ -72,7 +78,7 @@ class Reflector:
                 bullets_used
             )
         else:
-            prompt = REFLECTOR_PROMPT_NO_GT.format(
+            prompt = self.reflector_prompt_no_gt.format(
                 question,
                 reasoning_trace,
                 predicted_answer,

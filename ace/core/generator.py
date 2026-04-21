@@ -14,21 +14,24 @@ class Generator:
     Generator agent that produces answers to questions using knowledge
     from a playbook and previous reflections.
     """
-    
-    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096):
+
+    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096,
+                 generator_prompt: Optional[str] = None):
         """
         Initialize the Generator agent.
-        
+
         Args:
             api_client: OpenAI client for LLM calls
             api_provider: API provider for LLM calls
             model: Model name to use for generation
             max_tokens: Maximum tokens for generation
+            generator_prompt: Custom generator prompt (optional, uses default if None)
         """
         self.api_client = api_client
         self.api_provider = api_provider
         self.model = model
         self.max_tokens = max_tokens
+        self.generator_prompt = generator_prompt or GENERATOR_PROMPT
     
     def generate(
         self,
@@ -56,7 +59,7 @@ class Generator:
             Tuple of (full_response, bullet_ids_used, call_info)
         """
         # Format the prompt
-        prompt = GENERATOR_PROMPT.format(playbook, reflection, question, context)
+        prompt = self.generator_prompt.format(playbook, reflection, question, context)
         
         response, call_info = timed_llm_call(
             self.api_client,

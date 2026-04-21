@@ -16,21 +16,27 @@ class Curator:
     Curator agent that manages the playbook by adding, updating,
     merging, and deleting bullets based on reflection feedback.
     """
-    
-    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096):
+
+    def __init__(self, api_client, api_provider, model: str, max_tokens: int = 4096,
+                 curator_prompt: Optional[str] = None,
+                 curator_prompt_no_gt: Optional[str] = None):
         """
         Initialize the Curator agent.
-        
+
         Args:
             api_client: OpenAI client for LLM calls
             api_provider: API provider for LLM calls
             model: Model name to use for curation
             max_tokens: Maximum tokens for curation
+            curator_prompt: Custom curator prompt (optional, uses default if None)
+            curator_prompt_no_gt: Custom curator prompt without ground truth (optional)
         """
         self.api_client = api_client
         self.api_provider = api_provider
         self.model = model
         self.max_tokens = max_tokens
+        self.curator_prompt = curator_prompt or CURATOR_PROMPT
+        self.curator_prompt_no_gt = curator_prompt_no_gt or CURATOR_PROMPT_NO_GT
     
     def curate(
         self,
@@ -72,7 +78,7 @@ class Curator:
         
         # Select the appropriate prompt
         if use_ground_truth:
-            prompt = CURATOR_PROMPT.format(
+            prompt = self.curator_prompt.format(
                 current_step=current_step,
                 total_samples=total_samples,
                 token_budget=token_budget,
@@ -82,7 +88,7 @@ class Curator:
                 question_context=question_context
             )
         else:
-            prompt = CURATOR_PROMPT_NO_GT.format(
+            prompt = self.curator_prompt_no_gt.format(
                 current_step=current_step,
                 total_samples=total_samples,
                 token_budget=token_budget,

@@ -11,6 +11,7 @@ from datetime import datetime
 from .data_processor import DataProcessor
 
 from ace import ACE
+from ace.prompts import load_prompts
 from utils import initialize_clients
 
 def parse_args():
@@ -78,7 +79,12 @@ def parse_args():
     # Output configuration
     parser.add_argument("--save_path", type=str, required=True,
                         help="Directory to save results")
-    
+
+    # Task-specific prompts configuration
+    parser.add_argument("--task_prompts_dir", type=str, default=None,
+                        help="Path to task-specific prompts directory. "
+                             "If not specified, uses default prompts.")
+
     return parser.parse_args()
 
 def load_data(data_path: str):
@@ -192,7 +198,10 @@ def main():
         print(f"Loaded initial playbook from {args.initial_playbook_path}\n")
     else:
         print("Using empty playbook as initial playbook\n")
-    
+
+    # Load prompts - uses task-specific if provided, otherwise defaults
+    prompt_config = load_prompts(task_prompts_dir=args.task_prompts_dir)
+
     # Create ACE system
     ace_system = ACE(
         api_provider=args.api_provider,
@@ -202,7 +211,8 @@ def main():
         max_tokens=args.max_tokens,
         initial_playbook=initial_playbook,
         use_bulletpoint_analyzer=args.use_bulletpoint_analyzer,
-        bulletpoint_analyzer_threshold=args.bulletpoint_analyzer_threshold
+        bulletpoint_analyzer_threshold=args.bulletpoint_analyzer_threshold,
+        prompt_config=prompt_config
     )
     
     # Prepare configuration
