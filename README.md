@@ -218,8 +218,29 @@ uv run python -m eval.finance.run \
 | `--no_ground_truth` | Don't use ground truth in reflection | False |
 | `--use_bulletpoint_analyzer` | Enable bulletpoint analyzer for playbook deduplication and merging | False |
 | `--bulletpoint_analyzer_threshold` | Similarity threshold for bulletpoint analyzer (0-1) | 0.9 |
+| `--task_prompts_dir` | Path to task-specific prompts directory (see [Custom Prompts](#custom-task-specific-prompts)) | None |
 
 </details>
+
+### Custom Task-Specific Prompts
+
+ACE supports task-specific prompts that override the default prompts. This allows you to customize the Generator, Reflector, and Curator behavior for different domains without modifying the core ACE code.
+
+```bash
+# Use custom prompts for a specific task
+uv run python -m eval.finance.run \
+    --task_name finer \
+    --mode offline \
+    --save_path results \
+    --task_prompts_dir ./eval/finance/prompts
+```
+
+To create custom prompts, create a `prompts/` directory under your task folder with any of these files:
+- `generator.py` - Define `GENERATOR_PROMPT`
+- `reflector.py` - Define `REFLECTOR_PROMPT` and/or `REFLECTOR_PROMPT_NO_GT`
+- `curator.py` - Define `CURATOR_PROMPT` and/or `CURATOR_PROMPT_NO_GT`
+
+Only the prompts you define will override the defaults; missing prompts fall back to the built-in defaults.
 
 ## 📈 Results and Outputs
 

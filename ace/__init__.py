@@ -47,7 +47,8 @@ Usage:
 
 from .ace import ACE
 from .core import Generator, Reflector, Curator, BulletpointAnalyzer
+from .prompts import PromptConfig, load_prompts
 
-__all__ = ['ACE', 'Generator', 'Reflector', 'Curator', 'BulletpointAnalyzer']
+__all__ = ['ACE', 'Generator', 'Reflector', 'Curator', 'BulletpointAnalyzer', 'PromptConfig', 'load_prompts']
 
 __version__ = "1.0.0"

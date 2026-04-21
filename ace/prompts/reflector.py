@@ -27,22 +27,22 @@ Your output should be a json object, which contains the following fields
 
 
 **Question:**
-{}
+{question}
 
 **Model's Reasoning Trace:**
-{}
+{reasoning_trace}
 
 **Model's Predicted Answer:**
-{}
+{predicted_answer}
 
 **Ground Truth Answer:**
-{}
+{ground_truth}
 
 **Environment Feedback:**
-{}
+{environment_feedback}
 
 **Part of Playbook that's used by the generator to answer the question:**
-{}
+{bullets_used}
 
 **Answer in this exact JSON format:**
 {{
@@ -84,19 +84,19 @@ Your output should be a json object, which contains the following fields
 
 
 **Question:**
-{}
+{question}
 
 **Model's Reasoning Trace:**
-{}
+{reasoning_trace}
 
 **Model's Predicted Answer:**
-{}
+{predicted_answer}
 
 **Environment Feedback:**
-{}
+{environment_feedback}
 
 **Part of Playbook that's used by the generator to answer the question:**
-{}
+{bullets_used}
 
 **Answer in this exact JSON format:**
 {{
