@@ -20,16 +20,16 @@ Your output should be a json object, which contains the following fields:
 
 
 **Playbook:**
-{}
+{playbook}
 
 **Reflection:**
-{}
+{reflection}
 
 **Question:**
-{}
+{question}
 
 **Context:**
-{}
+{context}
 
 **Answer in this exact JSON format:**
 {{

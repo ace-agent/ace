@@ -70,20 +70,20 @@ class Reflector:
         # Select the appropriate prompt
         if use_ground_truth and ground_truth:
             prompt = self.reflector_prompt.format(
-                question,
-                reasoning_trace,
-                predicted_answer,
-                ground_truth,
-                environment_feedback,
-                bullets_used
+                question=question,
+                reasoning_trace=reasoning_trace,
+                predicted_answer=predicted_answer,
+                ground_truth=ground_truth,
+                environment_feedback=environment_feedback,
+                bullets_used=bullets_used
             )
         else:
             prompt = self.reflector_prompt_no_gt.format(
-                question,
-                reasoning_trace,
-                predicted_answer,
-                environment_feedback,
-                bullets_used
+                question=question,
+                reasoning_trace=reasoning_trace,
+                predicted_answer=predicted_answer,
+                environment_feedback=environment_feedback,
+                bullets_used=bullets_used
             )
         
         response, call_info = timed_llm_call(

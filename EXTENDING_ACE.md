@@ -491,16 +491,16 @@ Your output should be a json object with these fields:
 - final_answer: your concise final answer
 
 **Playbook:**
-{}
+{playbook}
 
 **Reflection:**
-{}
+{reflection}
 
 **Question:**
-{}
+{question}
 
 **Context:**
-{}
+{context}
 
 **Answer in JSON format:**
 {{
@@ -527,22 +527,22 @@ Analyze the model's reasoning and identify:
 - Evidence quality issues
 
 **Question:**
-{}
+{question}
 
 **Model's Reasoning:**
-{}
+{reasoning_trace}
 
 **Model's Answer:**
-{}
+{predicted_answer}
 
 **Ground Truth:**
-{}
+{ground_truth}
 
 **Environment Feedback:**
-{}
+{environment_feedback}
 
 **Playbook Bullets Used:**
-{}
+{bullets_used}
 
 **Your Analysis (JSON):**
 {{
@@ -561,15 +561,17 @@ REFLECTOR_PROMPT_NO_GT = """..."""
 
 ### Prompt Variables
 
-The default prompts use `{}` placeholders that get filled via `.format()`. Ensure your custom prompts have the same number and order of placeholders:
+All prompts use **named placeholders** (e.g., `{playbook}`, `{question}`) that get filled via `.format()`. Your custom prompts can use any subset of the available variables in any order.
 
-| Prompt | Placeholders (in order) |
-|--------|------------------------|
-| `GENERATOR_PROMPT` | playbook, reflection, question, context |
-| `REFLECTOR_PROMPT` | question, reasoning_trace, predicted_answer, ground_truth, environment_feedback, bullets_used |
-| `REFLECTOR_PROMPT_NO_GT` | question, reasoning_trace, predicted_answer, environment_feedback, bullets_used |
-| `CURATOR_PROMPT` | Uses named placeholders: `{current_step}`, `{total_samples}`, `{token_budget}`, `{playbook_stats}`, `{recent_reflection}`, `{current_playbook}`, `{question_context}` |
+| Prompt | Available Variables |
+|--------|---------------------|
+| `GENERATOR_PROMPT` | `{playbook}`, `{reflection}`, `{question}`, `{context}` |
+| `REFLECTOR_PROMPT` | `{question}`, `{reasoning_trace}`, `{predicted_answer}`, `{ground_truth}`, `{environment_feedback}`, `{bullets_used}` |
+| `REFLECTOR_PROMPT_NO_GT` | `{question}`, `{reasoning_trace}`, `{predicted_answer}`, `{environment_feedback}`, `{bullets_used}` |
+| `CURATOR_PROMPT` | `{current_step}`, `{total_samples}`, `{token_budget}`, `{playbook_stats}`, `{recent_reflection}`, `{current_playbook}`, `{question_context}` |
 | `CURATOR_PROMPT_NO_GT` | Same as `CURATOR_PROMPT` |
+
+**Note**: You only need to include the variables you want to use. For example, a minimal generator prompt could just use `{question}` and `{playbook}`.
 
 ### A/B Testing Prompts
 
