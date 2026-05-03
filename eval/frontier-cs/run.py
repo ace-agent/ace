@@ -22,8 +22,8 @@ def parse_args():
         "--task_name",
         type=str,
         required=True,
-        choices=["algorithmic", "research"],
-        help="Task name ('algorithmic' or 'research')",
+        choices=["algorithmic"],
+        help="Task name ('algorithmic')",
     )
     parser.add_argument(
         "--initial_playbook_path",

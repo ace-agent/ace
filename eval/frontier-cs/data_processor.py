@@ -9,12 +9,11 @@ from typing import List, Dict, Any, Optional
 
 class DataProcessor:
     """
-    Processor for Frontier-CS tasks.
+    Processor for Frontier-CS algorithmic tasks.
 
     Note: Frontier-CS is open-ended. Default correctness checks validate
     output format rather than solution quality.
-    For algorithmic track, this can optionally call the Frontier-CS judge
-    to score code submissions.
+    This can optionally call the Frontier-CS judge to score code submissions.
     """
 
     def __init__(
@@ -29,7 +28,7 @@ class DataProcessor:
         Initialize the data processor.
 
         Args:
-            task_name: "algorithmic" or "research"
+            task_name: "algorithmic"
             frontier_root: Path to Frontier-CS repo (used to import evaluator)
             judge_url: Algorithmic judge server URL
             backend: "docker" or "skypilot" (optional)
@@ -82,28 +81,21 @@ class DataProcessor:
         return processed_data
 
     def _build_question(self, metadata: Dict[str, Any]) -> str:
-        if self.task_name == "algorithmic":
-            base = (
-                "Solve the algorithmic problem in the context. "
-                "Write a C++17 program that follows the input/output format. "
-                "Return only code, no explanations. Optimize for score when applicable."
-            )
-            return base
-        if self.task_name == "research":
-            return (
-                "Solve the research problem in the context. "
-                "Implement the required Python API (e.g., Solution.solve). "
-                "Return only code, no explanations."
-            )
-        raise ValueError(f"Unknown task: {self.task_name}")
+        if self.task_name != "algorithmic":
+            raise ValueError(f"Unknown task: {self.task_name}")
+        return (
+            "Solve the algorithmic problem in the context. "
+            "Write a C++17 program that follows the input/output format. "
+            "Return only code, no explanations. Optimize for score when applicable."
+        )
 
     def get_generator_prompt_style(self) -> str:
-        if self.task_name in {"algorithmic", "research"}:
+        if self.task_name in {"algorithmic"}:
             return "code"
         return "json"
 
     def extract_final_answer(self, response: str) -> str:
-        if self.task_name in {"algorithmic", "research"}:
+        if self.task_name in {"algorithmic"}:
             return response.strip()
         return response
 
@@ -182,48 +174,6 @@ class DataProcessor:
 
         return score
 
-    def _score_research(self, predicted: str, problem_id: str) -> float:
-        if not self._research_answer_is_valid(predicted, None):
-            return 0.0
-
-        key = self._cache_key(problem_id, predicted)
-        with self._cache_lock:
-            if key in self._score_cache:
-                return self._score_cache[key]
-
-        self._ensure_evaluator()
-        if not self._evaluator:
-            raise RuntimeError(
-                "Frontier-CS evaluator not available. "
-                "Set --frontier_root to the Frontier-CS repo and ensure dependencies are installed."
-            )
-
-        result = self._evaluator.evaluate(
-            "research",
-            problem_id=problem_id,
-            code=predicted,
-            backend=self.backend,
-        )
-
-        score = 0.0
-        if result.success:
-            score = result.score if result.score is not None else 0.0
-
-        with self._cache_lock:
-            self._score_cache[key] = score
-
-        return score
-
-    def _research_answer_is_valid(
-        self,
-        predicted: str,
-        ground_truth: Optional[str] = None,
-    ) -> bool:
-        _ = ground_truth
-        if not predicted or not predicted.strip():
-            return False
-        return "class Solution" in predicted and re.search(r"\bdef\s+solve\s*\(", predicted) is not None
-
     def answer_is_correct(self, predicted: str, ground_truth: str) -> bool:
         """
         Format-based correctness for open-ended tasks.
@@ -231,8 +181,7 @@ class DataProcessor:
         if self.task_name == "algorithmic":
             # When using judge scoring, treat correctness as format validity.
             return self._algorithmic_answer_is_valid(predicted)
-        if self.task_name == "research":
-            return self._research_answer_is_valid(predicted, ground_truth)
+
 
         raise ValueError(f"Unknown task: {self.task_name}")
 
@@ -246,20 +195,17 @@ class DataProcessor:
         if not out:
             return 0.0
 
-        if self.use_judge and self.task_name in {"algorithmic", "research"}:
+        if self.use_judge and self.task_name == "algorithmic":
             scores = []
             for predicted, ground_truth in zip(out, target):
                 problem_id = self._extract_problem_id(ground_truth)
                 if problem_id is None:
                     scores.append(0.0)
                     continue
-                if self.task_name == "algorithmic":
-                    try:
-                        scores.append(self._score_algorithmic(predicted, int(problem_id)))
-                    except ValueError:
-                        scores.append(0.0)
-                else:
-                    scores.append(self._score_research(predicted, str(problem_id)))
+                try:
+                    scores.append(self._score_algorithmic(predicted, int(problem_id)))
+                except ValueError:
+                    scores.append(0.0)
             return sum(scores) / len(scores) if scores else 0.0
 
         correct_count = 0
