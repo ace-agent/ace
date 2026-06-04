@@ -6,7 +6,11 @@ Manages playbook operations (ADD, UPDATE, MERGE, DELETE).
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
-from ..prompts.curator import CURATOR_PROMPT, CURATOR_PROMPT_NO_GT
+from ..prompts.curator import (
+    CURATOR_OPERATIONS_AGGREGATION_PROMPT,
+    CURATOR_PROMPT,
+    CURATOR_PROMPT_NO_GT,
+)
 from playbook_utils import extract_json_from_text, apply_curator_operations
 from logger import log_curator_operation_diff, log_curator_failure
 from llm import timed_llm_call
@@ -161,6 +165,181 @@ class Curator:
             
             print("⏭️  Skipping curator operation and continuing training")
             return current_playbook, next_global_id, [], call_info
+
+    def propose_operations(
+        self,
+        current_playbook: str,
+        recent_reflection: str,
+        question_context: str,
+        current_step: int,
+        total_samples: int,
+        token_budget: int,
+        playbook_stats: Dict[str, Any],
+        use_ground_truth: bool = True,
+        use_json_mode: bool = False,
+        call_id: str = "curator_propose",
+        log_dir: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Generate curator operations without applying them to the playbook.
+
+        This is used by batched ComBEE-style aggregation: each reflection group
+        proposes local ADD operations from the same playbook snapshot, and a
+        reducer later deduplicates those proposals before they are applied once.
+        """
+        stats_str = json.dumps(playbook_stats, indent=2)
+
+        if use_ground_truth:
+            prompt = CURATOR_PROMPT.format(
+                current_step=current_step,
+                total_samples=total_samples,
+                token_budget=token_budget,
+                playbook_stats=stats_str,
+                recent_reflection=recent_reflection,
+                current_playbook=current_playbook,
+                question_context=question_context,
+            )
+        else:
+            prompt = CURATOR_PROMPT_NO_GT.format(
+                current_step=current_step,
+                total_samples=total_samples,
+                token_budget=token_budget,
+                playbook_stats=stats_str,
+                recent_reflection=recent_reflection,
+                current_playbook=current_playbook,
+                question_context=question_context,
+            )
+
+        response, call_info = timed_llm_call(
+            self.api_client,
+            self.api_provider,
+            self.model,
+            prompt,
+            role="curator",
+            call_id=call_id,
+            max_tokens=self.max_tokens,
+            log_dir=log_dir,
+            use_json_mode=use_json_mode,
+        )
+
+        if response.startswith("INCORRECT_DUE_TO_EMPTY_RESPONSE"):
+            print("⏭️  Skipping curator proposal due to empty response")
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "empty_response", response[:200], 0)
+            return [], call_info
+
+        try:
+            operations_info = self._extract_and_validate_operations(response)
+            operations = self._add_operations_only(operations_info["operations"], call_id)
+            print(f"✅ Curator proposal JSON schema validated successfully: {len(operations)} ADD operations")
+            return operations, call_info
+
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            print(f"❌ Curator proposal JSON parsing failed: {e}")
+            print(f"📄 Raw curator proposal preview: {response[:300]}...")
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "json_parse_error", response, 0, str(e))
+            print("⏭️  Skipping curator proposal due to invalid JSON format")
+            return [], call_info
+
+        except Exception as e:
+            print(f"❌ Curator proposal failed: {e}")
+            print(f"📄 Raw curator proposal preview: {response[:300]}...")
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "operation_error", response, 0, str(e))
+            print("⏭️  Skipping curator proposal and continuing training")
+            return [], call_info
+
+    def aggregate_operations(
+        self,
+        current_playbook: str,
+        operation_groups: List[Dict[str, Any]],
+        current_step: int,
+        total_samples: int,
+        token_budget: int,
+        playbook_stats: Dict[str, Any],
+        use_json_mode: bool = False,
+        call_id: str = "curator_reduce",
+        log_dir: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Reduce independently proposed ADD operations into one final operation set.
+        """
+        proposed_operations = json.dumps(operation_groups, indent=2, ensure_ascii=False)
+        stats_str = json.dumps(playbook_stats, indent=2)
+        prompt = CURATOR_OPERATIONS_AGGREGATION_PROMPT.format(
+            current_step=current_step,
+            total_samples=total_samples,
+            token_budget=token_budget,
+            playbook_stats=stats_str,
+            current_playbook=current_playbook,
+            proposed_operations=proposed_operations,
+        )
+
+        response, call_info = timed_llm_call(
+            self.api_client,
+            self.api_provider,
+            self.model,
+            prompt,
+            role="curator",
+            call_id=call_id,
+            max_tokens=self.max_tokens,
+            log_dir=log_dir,
+            use_json_mode=use_json_mode,
+        )
+
+        if response.startswith("INCORRECT_DUE_TO_EMPTY_RESPONSE"):
+            print("⏭️  Skipping curator reducer due to empty response")
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "empty_response", response[:200], 0)
+            return [], call_info
+
+        try:
+            operations_info = self._extract_and_validate_operations(response)
+            operations = self._add_operations_only(operations_info["operations"], call_id)
+            print(f"✅ Curator reducer JSON schema validated successfully: {len(operations)} final ADD operations")
+
+            for op in operations:
+                try:
+                    diff_log_dir = Path(log_dir).parent if log_dir else None
+                    log_curator_operation_diff(diff_log_dir, op, current_playbook, call_id)
+                except Exception as e:
+                    print(f"Warning: Failed to log reducer operation diff: {e}")
+
+            return operations, call_info
+
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            print(f"❌ Curator reducer JSON parsing failed: {e}")
+            print(f"📄 Raw curator reducer preview: {response[:300]}...")
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "json_parse_error", response, 0, str(e))
+            print("⏭️  Skipping curator reducer due to invalid JSON format")
+            return [], call_info
+
+        except Exception as e:
+            print(f"❌ Curator reducer failed: {e}")
+            print(f"📄 Raw curator reducer preview: {response[:300]}...")
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "operation_error", response, 0, str(e))
+            print("⏭️  Skipping curator reducer and continuing training")
+            return [], call_info
+
+    def _add_operations_only(
+        self,
+        operations: List[Dict[str, Any]],
+        source: str,
+    ) -> List[Dict[str, Any]]:
+        """ACE currently applies only ADD operations; ignore unsupported proposal types."""
+        add_operations = []
+        for op in operations:
+            if op.get("type") == "ADD":
+                add_operations.append(op)
+            else:
+                print(
+                    f"Warning: Ignoring unsupported curator operation "
+                    f"'{op.get('type', 'UNKNOWN')}' from {source}"
+                )
+        return add_operations
     
     def _extract_and_validate_operations(
         self,

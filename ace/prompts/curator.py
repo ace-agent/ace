@@ -128,3 +128,58 @@ Output ONLY a valid JSON object with these exact fields:
 
 ---
 """
+
+
+CURATOR_OPERATIONS_AGGREGATION_PROMPT = """You are aggregating playbook update proposals generated independently from different subsets of a training batch.
+
+**CRITICAL: You MUST respond with valid JSON only. Do not use markdown formatting or code blocks.**
+
+**Context:**
+- Each proposal below was produced by a Curator after reviewing a different reflection group.
+- The current ACE implementation only supports ADD operations. Do not output UPDATE, MERGE, DELETE, or CREATE_META operations.
+- Bullet IDs are assigned by the system. Do not include bullet IDs in operation content.
+
+**Instructions:**
+- Review the current playbook and all proposed ADD operations.
+- Synthesize overlapping proposals into a single more specific ADD operation.
+- Drop proposals that are already covered by the current playbook.
+- Drop vague, redundant, or low-value proposals.
+- Preserve complementary insights as separate ADD operations when they teach genuinely different behavior.
+- Keep each operation concise, actionable, and suitable for future tasks.
+- If no new content should be added, return an empty operations list.
+
+**Training Context:**
+- Total token budget: {token_budget} tokens
+- Training progress: Sample {current_step} out of {total_samples}
+
+**Current Playbook Stats:**
+{playbook_stats}
+
+**Current Playbook:**
+{current_playbook}
+
+**Independent Proposed Operations:**
+{proposed_operations}
+
+**Your Task:**
+Output ONLY a valid JSON object with these exact fields:
+- reasoning: a concise rationale for the aggregation decisions
+- operations: a list of final ADD operations to apply to the playbook
+  - type: must be "ADD"
+  - section: the section to add the bullet to
+  - content: the final bullet content; do not include a bullet ID
+
+**RESPONSE FORMAT - Output ONLY this JSON structure (no markdown, no code blocks):**
+{{
+  "reasoning": "[Concise rationale here]",
+  "operations": [
+    {{
+      "type": "ADD",
+      "section": "formulas_and_calculations",
+      "content": "[Deduplicated, actionable insight...]"
+    }}
+  ]
+}}
+
+---
+"""

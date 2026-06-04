@@ -50,7 +50,9 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=1,
                         help="Generator mini-batch size; >1 uses batched ACE")
     parser.add_argument("--curator_batch_size", type=int, default=None,
-                        help="Curator chunk size (default: same as --batch_size)")
+                        help="Legacy option retained for compatibility; batched ACE now uses curator_num_groups")
+    parser.add_argument("--curator_num_groups", type=int, default=None,
+                        help="Number of ComBEE curator proposal groups (default: floor(sqrt(batch reflections)))")
     parser.add_argument(
         "--augmented_shuffling",
         action=argparse.BooleanOptionalAction,
@@ -212,6 +214,7 @@ def main():
         'api_provider': args.api_provider,
         'batch_size': args.batch_size,
         'curator_batch_size': args.curator_batch_size,
+        'curator_num_groups': args.curator_num_groups,
         'augmented_shuffling': args.augmented_shuffling,
     }
 
