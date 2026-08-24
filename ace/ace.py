@@ -454,6 +454,11 @@ class ACE:
         token_budget = config_params['token_budget']
         use_json_mode = config_params['use_json_mode']
         no_ground_truth = config_params['no_ground_truth']
+        # if algorithmic task, use code prompt style
+        if hasattr(data_processor, "get_generator_prompt_style"):
+            prompt_style = data_processor.get_generator_prompt_style()
+        else:
+            prompt_style = "json"
         
         # Extract sample data
         question = task_dict.get("question", "")
@@ -468,6 +473,7 @@ class ACE:
             context=context,
             reflection="(empty)",
             use_json_mode=use_json_mode,
+            prompt_style=prompt_style,
             call_id=f"{step_id}_gen_initial",
             log_dir=log_dir
         )
@@ -533,6 +539,7 @@ class ACE:
                     context=context,
                     reflection=reflection_content,
                     use_json_mode=use_json_mode,
+                    prompt_style=prompt_style,
                     call_id=f"{step_id}_post_reflect_round_{round_num}",
                     log_dir=log_dir
                 )
@@ -612,6 +619,7 @@ class ACE:
             context=context,
             reflection="(empty)",
             use_json_mode=use_json_mode,
+            prompt_style=prompt_style,
             call_id=f"{step_id}_post_curate",
             log_dir=log_dir
         )
@@ -672,6 +680,17 @@ class ACE:
         error_logs = []
         best_accuracy = 0.0
         self.best_playbook = self.playbook
+        metrics_eval_path = os.path.join(save_path, "metrics_eval.jsonl")
+        checkpoints_index_path = os.path.join(save_path, "checkpoints_index.jsonl")
+
+        # Start each offline run with fresh metric/checkpoint index logs.
+        for p in (metrics_eval_path, checkpoints_index_path):
+            with open(p, "w", encoding="utf-8") as _f:
+                _f.write("")
+
+        def append_jsonl(path: str, payload: Dict[str, Any]) -> None:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
         print(f"Total epochs: {num_epochs}")
         print(f"Train samples per epoch: {len(train_samples)}")
@@ -731,6 +750,16 @@ class ACE:
                     )
                     with open(intermediate_path, "w") as f:
                         f.write(self.playbook)
+                    append_jsonl(checkpoints_index_path, {
+                        "timestamp": datetime.now().isoformat(),
+                        "checkpoint_type": "intermediate",
+                        "epoch": epoch,
+                        "step": step,
+                        "global_step": (epoch - 1) * len(train_samples) + step,
+                        "path": intermediate_path,
+                        "playbook_num_tokens": count_tokens(self.playbook),
+                        "playbook_length": len(self.playbook),
+                    })
                 
                 # Periodic evaluation
                 if step % eval_steps == 0:
@@ -748,6 +777,7 @@ class ACE:
                     
                     # Validation evaluation
                     val_results = {}
+                    val_error_log = {}
                     if val_samples:
                         val_results, val_error_log = evaluate_test_set(
                             data_processor, self.generator, self.playbook, 
@@ -773,6 +803,21 @@ class ACE:
                         "step": step,
                         "val_results": val_results,
                         "error_log": val_error_log
+                    })
+                    append_jsonl(metrics_eval_path, {
+                        "timestamp": datetime.now().isoformat(),
+                        "epoch": epoch,
+                        "step": step,
+                        "global_step": (epoch - 1) * len(train_samples) + step,
+                        "train_pre_accuracy": pre_train_accuracy,
+                        "train_post_accuracy": post_train_accuracy,
+                        "val_mean_score": val_results.get("mean_score"),
+                        "val_accuracy": val_results.get("accuracy"),
+                        "val_format_valid_count": val_results.get("format_valid_count"),
+                        "val_evaluated_count": val_results.get("evaluated_count"),
+                        "val_failed_count": val_error_log.get("failed_count", 0),
+                        "playbook_num_tokens": count_tokens(self.playbook),
+                        "playbook_length": len(self.playbook),
                     })
 
                     # Track best playbook
@@ -801,6 +846,16 @@ class ACE:
             )
             with open(epoch_playbook_path, "w") as f:
                 f.write(self.playbook)
+            append_jsonl(checkpoints_index_path, {
+                "timestamp": datetime.now().isoformat(),
+                "checkpoint_type": "epoch_final",
+                "epoch": epoch,
+                "step": len(train_samples),
+                "global_step": epoch * len(train_samples),
+                "path": epoch_playbook_path,
+                "playbook_num_tokens": count_tokens(self.playbook),
+                "playbook_length": len(self.playbook),
+            })
 
         # Save training results
         results_path = os.path.join(save_path, "train_results.json")
@@ -818,11 +873,32 @@ class ACE:
         final_playbook_path = os.path.join(save_path, f"final_playbook.txt")
         with open(final_playbook_path, "w") as f:
             f.write(self.playbook)
+        append_jsonl(checkpoints_index_path, {
+            "timestamp": datetime.now().isoformat(),
+            "checkpoint_type": "final_playbook",
+            "epoch": num_epochs,
+            "step": len(train_samples),
+            "global_step": num_epochs * len(train_samples),
+            "path": final_playbook_path,
+            "playbook_num_tokens": count_tokens(self.playbook),
+            "playbook_length": len(self.playbook),
+        })
         
         # Save best playbook
         best_playbook_path = os.path.join(save_path, f"best_playbook.txt")
         with open(best_playbook_path, "w") as f:
             f.write(self.best_playbook)
+        append_jsonl(checkpoints_index_path, {
+            "timestamp": datetime.now().isoformat(),
+            "checkpoint_type": "best_playbook",
+            "epoch": num_epochs,
+            "step": len(train_samples),
+            "global_step": num_epochs * len(train_samples),
+            "path": best_playbook_path,
+            "best_validation_accuracy": best_accuracy,
+            "playbook_num_tokens": count_tokens(self.best_playbook),
+            "playbook_length": len(self.best_playbook),
+        })
         
         print(f"\n{'='*60}")
         print(f"OFFLINE TRAINING COMPLETE")

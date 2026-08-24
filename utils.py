@@ -5,7 +5,7 @@ import json
 import openai
 import tiktoken
 from dotenv import load_dotenv
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Load environment variables from .env file
@@ -97,6 +97,19 @@ def extract_boxed_content(text):
         i += 1
     return None
 
+
+def _strip_code_fences(text: str) -> str:
+    if "```" not in text:
+        return text
+    return re.sub(r"^```[a-zA-Z0-9+_-]*\n|\n```$", "", text.strip(), flags=re.MULTILINE)
+
+
+def _extract_code_block(text: str) -> Optional[str]:
+    match = re.search(r"```[a-zA-Z0-9+_-]*\n(.*?)```", text, flags=re.DOTALL)
+    if not match:
+        return None
+    return match.group(1)
+
 def extract_answer(response):
     """Extract final answer from model response"""
     try:
@@ -106,6 +119,13 @@ def extract_answer(response):
         return answer  
             
     except (json.JSONDecodeError, KeyError, AttributeError):
+        # If the response looks like raw C++ code, return it directly
+        if "#include" in response and re.search(r"\bint\s+main\s*\(", response):
+            return _strip_code_fences(response).strip()
+        # If the response contains a fenced code block, extract it
+        code_block = _extract_code_block(response)
+        if code_block and "#include" in code_block and re.search(r"\bint\s+main\s*\(", code_block):
+            return code_block.strip()
         # JSON parsing failed, use fallback logic
         matches = re.findall(r"Finish\[(.*?)\]", response)
         if matches:
@@ -174,17 +194,26 @@ def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:
         question = task_dict["question"]
         target = task_dict["target"]
 
+        if hasattr(data_processor, "get_generator_prompt_style"):
+            prompt_style = data_processor.get_generator_prompt_style()
+        else:
+            prompt_style = "json"
+
         gen_response, bullet_ids, call_info = generator.generate(
             question=question,
             playbook=playbook,
             context=context,
             reflection="(empty)",
             use_json_mode=use_json_mode,
+            prompt_style=prompt_style,
             call_id=f"test_eval_{i}",
             log_dir=log_dir
         )
 
-        final_answer = extract_answer(gen_response)
+        if hasattr(data_processor, "extract_final_answer"):
+            final_answer = data_processor.extract_final_answer(gen_response)
+        else:
+            final_answer = extract_answer(gen_response)
         is_correct = data_processor.answer_is_correct(final_answer, target)
 
         return {
@@ -228,8 +257,10 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
     ]
 
     results = {
+        # Legacy names kept for backward compatibility:
+        # correct/total reflect format-valid outputs, not judge score correctness.
         "correct": 0, "total": 0, "no_answer": 0,
-        "answers": [], "targets": [], "errors": []
+        "answers": [], "targets": [], "errors": [], "failed_samples": []
     }
 
     # Use a wrapper to pass data_processor to the evaluation function
@@ -243,10 +274,16 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         }
 
         for i, future in enumerate(as_completed(future_to_args), 1):
+            args_tuple = future_to_args[future]
+            sample_index = args_tuple[0]
             result, error = future.result()
             
             if error:
                 print(error)
+                results["failed_samples"].append({
+                    "index": sample_index,
+                    "error": error,
+                })
                 continue
 
             if result and result["success"]:
@@ -273,7 +310,14 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         accuracy = data_processor.evaluate_accuracy(results["answers"], results["targets"])
         
         final_results = {
+            # Backward-compatible field name used by existing callers.
             "accuracy": accuracy,
+            # Explicit names to avoid confusion with score-based evaluation.
+            "mean_score": accuracy,
+            "format_valid_count": results["correct"],
+            "evaluated_count": results["total"],
+            "failed_count": len(results["failed_samples"]),
+            # Legacy fields preserved.
             "correct": results["correct"],
             "total": results["total"],
             "no_answer": results["no_answer"]
@@ -281,13 +325,39 @@ def evaluate_test_set(data_processor, generator, playbook, test_samples,
         
         error_logs = {
             "accuracy": accuracy,
+            "mean_score": accuracy,
+            "format_valid_count": results["correct"],
+            "evaluated_count": results["total"],
+            "failed_count": len(results["failed_samples"]),
+            "failed_samples": results["failed_samples"],
             "errors": results["errors"]
         }
         
-        print(f"\n📊 Final Accuracy: {accuracy:.3f} ({results['correct']}/{results['total']})")
+        print(
+            f"\n📊 Final Mean Score: {accuracy:.3f} | "
+            f"Format-valid outputs: {results['correct']}/{results['total']} | "
+            f"Failed: {len(results['failed_samples'])}"
+        )
     else:
-        results = {"accuracy": 0.0, "correct": 0, "total": 0}
-        error_logs = {}
+        final_results = {
+            "accuracy": 0.0,
+            "mean_score": 0.0,
+            "format_valid_count": 0,
+            "evaluated_count": 0,
+            "failed_count": len(results["failed_samples"]),
+            "correct": 0,
+            "total": 0,
+            "no_answer": 0,
+        }
+        error_logs = {
+            "accuracy": 0.0,
+            "mean_score": 0.0,
+            "format_valid_count": 0,
+            "evaluated_count": 0,
+            "failed_count": len(results["failed_samples"]),
+            "failed_samples": results.get("failed_samples", []),
+            "errors": results.get("errors", []),
+        }
         print(f"\n📊 No valid results!")
         
     return final_results, error_logs

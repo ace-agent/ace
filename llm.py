@@ -18,7 +18,7 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
     Make a timed LLM call with error handling and retry logic.
     
     EMPTY RESPONSE HANDLING STRATEGY:
-    - Training calls (call_id starts with 'train_'): Skip the entire training sample
+    - Training calls (call_id starts with 'train_' or 'online_train_'): Skip the entire training sample
     - Test calls (call_id starts with 'test_'): Mark as incorrect (return wrong answers)
     - All empty responses are logged to problematic_requests/ for SambaNova support analysis
     
@@ -67,9 +67,11 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
             api_params = {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
                 max_tokens_key: max_tokens
             }
+            # Some models (e.g., gpt-5*) only accept default temperature.
+            if not model.startswith("gpt-5"):
+                api_params["temperature"] = 0.0
             
             # Add JSON mode if requested
             if use_json_mode:
@@ -79,16 +81,23 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
             call_end = time.time()
             
             # Check if response is valid
-            if not response or not response.choices or len(response.choices) == 0:
+            if not response:
+                raise Exception("Empty response from API")
+            is_chat_response = hasattr(response, "choices")
+            if is_chat_response and (not response.choices or len(response.choices) == 0):
                 raise Exception("Empty response from API")
             
             response_time = time.time()
             total_time = response_time - start_time
             response_content = response.choices[0].message.content
             
-            if response_content is None:
+            if response_content is None or response_content == "":
                 raise Exception("API returned None content")
             
+            usage = getattr(response, "usage", None)
+            prompt_tokens = getattr(usage, "prompt_tokens", None)
+            response_tokens = getattr(usage, "completion_tokens", None)
+
             call_info = {
                 "role": role,
                 "call_id": call_id,
@@ -101,8 +110,8 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
                 "call_time": call_end - call_start,
                 "prompt_length": len(prompt),
                 "response_length": len(response_content),
-                "prompt_num_tokens": response.usage.prompt_tokens,
-                "response_num_tokens": response.usage.completion_tokens,
+                "prompt_num_tokens": prompt_tokens,
+                "response_num_tokens": response_tokens,
             }
             
             print(f"[{role.upper()}] Call {call_id} completed in {total_time:.2f}s")
@@ -173,7 +182,7 @@ def timed_llm_call(client, api_provider, model, prompt, role, call_id, max_token
                                        client if using_key_mixer else None)
                 
                 # Check if this is a training or test call to decide behavior
-                if call_id.startswith('train_'):
+                if call_id.startswith(('train_', 'online_train_')):
                     # In training: Mark as incorrect answer (same as testing)
                     print(f"[{role.upper()}] 🚨 Empty response in training - marking as INCORRECT for {call_id}")
                     error_time = time.time()

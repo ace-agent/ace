@@ -3,7 +3,7 @@ Generator prompts for ACE system.
 """
 
 # Retrieval and Reason Generator prompt that outputs bullet IDs
-GENERATOR_PROMPT = """You are an analysis expert tasked with answering questions using your knowledge, a curated playbook of strategies and insights and a reflection that goes over the diagnosis of all previous mistakes made while answering the question.
+GENERATOR_PROMPT_JSON = """You are an analysis expert tasked with answering questions using your knowledge, a curated playbook of strategies and insights and a reflection that goes over the diagnosis of all previous mistakes made while answering the question.
 
 **Instructions:**
 - Read the playbook carefully and apply relevant strategies, formulas, and insights
@@ -40,3 +40,33 @@ Your output should be a json object, which contains the following fields:
 
 ---
 """
+
+# Code-only generator prompt for programming tasks
+GENERATOR_PROMPT_CODE = """You are a coding expert tasked with solving programming problems using your knowledge, a curated playbook of strategies and insights, and a reflection that summarizes previous mistakes.
+
+**Instructions:**
+- Use the playbook and reflection when helpful
+- Write a complete, runnable solution that follows the problem's input/output format
+- Return only the final code (no explanations, no markdown, no JSON)
+- Prefer C++17 when the question asks for it
+
+**Playbook:**
+{}
+
+**Reflection:**
+{}
+
+**Question:**
+{}
+
+**Context:**
+{}
+
+**Output:**
+Return only the code.
+
+---
+"""
+
+# Backward-compatible alias
+GENERATOR_PROMPT = GENERATOR_PROMPT_JSON
