@@ -2,6 +2,9 @@
 
 This guide provides detailed instructions for adding new tasks to the ACE framework.
 
+For offline native-role tests and the evidence needed to compare Terminal-Bench
+ComBEE runs, see [the reproduction contract](tutorials/TerminalBenchReproduction.md).
+
 ## 📁 Repository Structure
 
 Understanding the codebase structure will help you navigate and extend ACE effectively:
