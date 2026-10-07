@@ -8,10 +8,15 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from ..prompts.curator import (
     CURATOR_OPERATIONS_AGGREGATION_PROMPT,
+    CURATOR_LIFECYCLE_PROMPT,
+    CURATOR_LIFECYCLE_AGGREGATION_PROMPT,
+    LIFECYCLE_OPERATIONS_SCHEMA,
     CURATOR_PROMPT,
     CURATOR_PROMPT_NO_GT,
 )
-from playbook_utils import extract_json_from_text, apply_curator_operations
+from playbook_utils import apply_curator_operations_with_budget, extract_json_from_text
+from playbook_lifecycle import apply_playbook_lifecycle, prepare_playbook_candidate
+from playbook_utils import get_next_global_id
 from logger import log_curator_operation_diff, log_curator_failure
 from llm import timed_llm_call
 
@@ -49,7 +54,9 @@ class Curator:
         use_json_mode: bool = False,
         call_id: str = "curate",
         log_dir: Optional[str] = None,
-        next_global_id: int = 1
+        next_global_id: int = 1,
+        enforce_playbook_budget: bool = False,
+        enable_playbook_lifecycle: bool = False
     ) -> Tuple[str, int, List[Dict[str, Any]], Dict[str, Any]]:
         """
         Curate the playbook based on reflection feedback.
@@ -67,6 +74,8 @@ class Curator:
             call_id: Unique identifier for this call
             log_dir: Directory for logging
             next_global_id: Next available global ID for bullets
+            enforce_playbook_budget: Reject candidates exceeding the token budget
+            enable_playbook_lifecycle: Validate ADD/UPDATE/MERGE/DELETE as one transaction
             
         Returns:
             Tuple of (updated_playbook, next_global_id, operations, call_info)
@@ -96,6 +105,15 @@ class Curator:
                 question_context=question_context
             )
         
+        if enable_playbook_lifecycle:
+            prompt = CURATOR_LIFECYCLE_PROMPT.format(
+                reflection_source="ground truth answers" if use_ground_truth else "environment feedback",
+                current_step=current_step, total_samples=total_samples,
+                token_budget=token_budget, playbook_stats=stats_str,
+                recent_reflection=recent_reflection, current_playbook=current_playbook,
+                question_context=question_context, operation_schema=LIFECYCLE_OPERATIONS_SCHEMA,
+            )
+
         # Make the LLM call
         response, call_info = timed_llm_call(
             self.api_client,
@@ -112,8 +130,11 @@ class Curator:
         # Check for empty response error
         if response.startswith("INCORRECT_DUE_TO_EMPTY_RESPONSE"):
             print(f"⏭️  Skipping curator operation due to empty response")
-            log_curator_failure(log_dir, current_step, "empty_response", 
-                                    response[:200], 0)
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "empty_response", response[:200], 0)
+            if enable_playbook_lifecycle:
+                call_info = dict(call_info or {})
+                call_info["playbook_lifecycle"] = {"status": "rejected", "reason": "empty_response"}
             return current_playbook, next_global_id, [], call_info
         
         # Extract and validate operations
@@ -131,9 +152,18 @@ class Curator:
                     print(f"Warning: Failed to log curator operation diff: {e}")
             
             # Apply operations to playbook
-            updated_playbook, next_global_id = apply_curator_operations(
-                current_playbook, operations, next_global_id
+            apply_operations = apply_playbook_lifecycle if enable_playbook_lifecycle else apply_curator_operations_with_budget
+            updated_playbook, next_global_id, budget_decision = apply_operations(
+                current_playbook, operations, next_global_id, token_budget,
+                enforce=enforce_playbook_budget,
             )
+            if enforce_playbook_budget or enable_playbook_lifecycle:
+                call_info = dict(call_info or {})
+                decision_key = "playbook_lifecycle" if enable_playbook_lifecycle else "playbook_budget"
+                call_info[decision_key] = budget_decision
+                if budget_decision["status"] == "rejected":
+                    operations = []
+                    print(f"⏭️  Skipping curator update: {budget_decision['reason']}")
             
             # Log operations
             for op in operations:
@@ -147,11 +177,17 @@ class Curator:
             return updated_playbook, next_global_id, operations, call_info
             
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            if enable_playbook_lifecycle:
+                call_info = dict(call_info or {})
+                call_info["playbook_lifecycle"] = {
+                    "status": "rejected", "reason": "invalid_operations", "detail": str(e),
+                }
             print(f"❌ Curator JSON parsing failed: {e}")
             print(f"📄 Raw curator response preview: {response[:300]}...")
             
-            log_curator_failure(log_dir, current_step, "json_parse_error", 
-                                response, 0, str(e))
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "json_parse_error",
+                                    response, 0, str(e))
             
             print("⏭️  Skipping curator operation due to invalid JSON format")
             return current_playbook, next_global_id, [], call_info
@@ -160,8 +196,9 @@ class Curator:
             print(f"❌ Curator operation failed: {e}")
             print(f"📄 Raw curator response preview: {response[:300]}...")
             
-            log_curator_failure(log_dir, current_step, "operation_error", 
-                                response, 0, str(e))
+            if log_dir:
+                log_curator_failure(log_dir, current_step, "operation_error",
+                                    response, 0, str(e))
             
             print("⏭️  Skipping curator operation and continuing training")
             return current_playbook, next_global_id, [], call_info
@@ -179,12 +216,13 @@ class Curator:
         use_json_mode: bool = False,
         call_id: str = "curator_propose",
         log_dir: Optional[str] = None,
+        enable_playbook_lifecycle: bool = False,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Generate curator operations without applying them to the playbook.
 
         This is used by batched ComBEE-style aggregation: each reflection group
-        proposes local ADD operations from the same playbook snapshot, and a
+        proposes local operations from the same playbook snapshot, and a
         reducer later deduplicates those proposals before they are applied once.
         """
         stats_str = json.dumps(playbook_stats, indent=2)
@@ -210,6 +248,15 @@ class Curator:
                 question_context=question_context,
             )
 
+        if enable_playbook_lifecycle:
+            prompt = CURATOR_LIFECYCLE_PROMPT.format(
+                reflection_source="ground truth answers" if use_ground_truth else "environment feedback",
+                current_step=current_step, total_samples=total_samples,
+                token_budget=token_budget, playbook_stats=stats_str,
+                recent_reflection=recent_reflection, current_playbook=current_playbook,
+                question_context=question_context, operation_schema=LIFECYCLE_OPERATIONS_SCHEMA,
+            )
+
         response, call_info = timed_llm_call(
             self.api_client,
             self.api_provider,
@@ -226,15 +273,27 @@ class Curator:
             print("⏭️  Skipping curator proposal due to empty response")
             if log_dir:
                 log_curator_failure(log_dir, current_step, "empty_response", response[:200], 0)
+            if enable_playbook_lifecycle:
+                call_info = dict(call_info or {})
+                call_info["playbook_lifecycle"] = {"status": "rejected", "reason": "empty_response"}
             return [], call_info
 
         try:
             operations_info = self._extract_and_validate_operations(response)
-            operations = self._add_operations_only(operations_info["operations"], call_id)
-            print(f"✅ Curator proposal JSON schema validated successfully: {len(operations)} ADD operations")
+            operations = operations_info["operations"]
+            if enable_playbook_lifecycle:
+                prepare_playbook_candidate(current_playbook, operations, get_next_global_id(current_playbook))
+            else:
+                operations = self._add_operations_only(operations, call_id)
+            print(f"✅ Curator proposal JSON schema validated successfully: {len(operations)} operations")
             return operations, call_info
 
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            if enable_playbook_lifecycle:
+                call_info = dict(call_info or {})
+                call_info["playbook_lifecycle"] = {
+                    "status": "rejected", "reason": "invalid_operations", "detail": str(e),
+                }
             print(f"❌ Curator proposal JSON parsing failed: {e}")
             print(f"📄 Raw curator proposal preview: {response[:300]}...")
             if log_dir:
@@ -261,9 +320,10 @@ class Curator:
         use_json_mode: bool = False,
         call_id: str = "curator_reduce",
         log_dir: Optional[str] = None,
+        enable_playbook_lifecycle: bool = False,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
-        Reduce independently proposed ADD operations into one final operation set.
+        Reduce independently proposed operations into one final operation set.
         """
         proposed_operations = json.dumps(operation_groups, indent=2, ensure_ascii=False)
         stats_str = json.dumps(playbook_stats, indent=2)
@@ -275,6 +335,15 @@ class Curator:
             current_playbook=current_playbook,
             proposed_operations=proposed_operations,
         )
+
+        if enable_playbook_lifecycle:
+            prompt = CURATOR_LIFECYCLE_AGGREGATION_PROMPT.format(
+                current_step=current_step, total_samples=total_samples,
+                token_budget=token_budget, playbook_stats=json.dumps(playbook_stats, indent=2),
+                current_playbook=current_playbook,
+                proposed_operations=json.dumps(operation_groups, indent=2, ensure_ascii=False),
+                operation_schema=LIFECYCLE_OPERATIONS_SCHEMA,
+            )
 
         response, call_info = timed_llm_call(
             self.api_client,
@@ -292,12 +361,19 @@ class Curator:
             print("⏭️  Skipping curator reducer due to empty response")
             if log_dir:
                 log_curator_failure(log_dir, current_step, "empty_response", response[:200], 0)
+            if enable_playbook_lifecycle:
+                call_info = dict(call_info or {})
+                call_info["playbook_lifecycle"] = {"status": "rejected", "reason": "empty_response"}
             return [], call_info
 
         try:
             operations_info = self._extract_and_validate_operations(response)
-            operations = self._add_operations_only(operations_info["operations"], call_id)
-            print(f"✅ Curator reducer JSON schema validated successfully: {len(operations)} final ADD operations")
+            operations = operations_info["operations"]
+            if enable_playbook_lifecycle:
+                prepare_playbook_candidate(current_playbook, operations, get_next_global_id(current_playbook))
+            else:
+                operations = self._add_operations_only(operations, call_id)
+            print(f"✅ Curator reducer JSON schema validated successfully: {len(operations)} final operations")
 
             for op in operations:
                 try:
@@ -309,6 +385,11 @@ class Curator:
             return operations, call_info
 
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            if enable_playbook_lifecycle:
+                call_info = dict(call_info or {})
+                call_info["playbook_lifecycle"] = {
+                    "status": "rejected", "reason": "invalid_operations", "detail": str(e),
+                }
             print(f"❌ Curator reducer JSON parsing failed: {e}")
             print(f"📄 Raw curator reducer preview: {response[:300]}...")
             if log_dir:
@@ -329,7 +410,7 @@ class Curator:
         operations: List[Dict[str, Any]],
         source: str,
     ) -> List[Dict[str, Any]]:
-        """ACE currently applies only ADD operations; ignore unsupported proposal types."""
+        """ACE currently applies only operations; ignore unsupported proposal types."""
         add_operations = []
         for op in operations:
             if op.get("type") == "ADD":
@@ -361,8 +442,8 @@ class Curator:
         operations_info = extract_json_from_text(response, "operations")
         
         # Validate JSON structure is correct
-        if not operations_info:
-            raise ValueError("Failed to extract valid JSON from curator response")
+        if not isinstance(operations_info, dict):
+            raise ValueError("Curator response must be a JSON object")
         
         # Validate required fields
         if "reasoning" not in operations_info:
@@ -387,8 +468,10 @@ class Curator:
                 raise ValueError(f"Operation {i} missing required 'type' field")
             
             op_type = op["type"]
+            if not isinstance(op_type, str):
+                raise ValueError(f"Operation {i} type must be a string")
             
-            # Currently only ADD operations are fully supported
+            # Currently only operations are fully supported
             # Note: You can add support for UPDATE, MERGE, DELETE operations here
             if op_type not in ["ADD", "UPDATE", "MERGE", "DELETE", "CREATE_META"]:
                 print(f"Warning: Operation type '{op_type}' may not be fully supported")
@@ -399,5 +482,8 @@ class Curator:
                 missing_fields = required_fields - set(op.keys())
                 if missing_fields:
                     raise ValueError(f"ADD operation {i} missing fields: {list(missing_fields)}")
+                for field in ("section", "content"):
+                    if not isinstance(op[field], str):
+                        raise ValueError(f"ADD operation {i} {field} must be a string")
         
         return operations_info

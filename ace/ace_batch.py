@@ -11,17 +11,24 @@ This module coordinates three agents:
 import os
 import json
 import random
+import openai
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .core import Generator, Reflector, Curator, BulletpointAnalyzer
 from playbook_utils import *
+from playbook_lifecycle import PlaybookCandidate, apply_playbook_lifecycle, rollback_playbook_candidate
 from logger import *
 from utils import *
 
 # Placeholder answer when API error occurs - will be marked incorrect by answer_is_correct
 INCORRECT_DUE_TO_API_ERROR = "INCORRECT_DUE_TO_API_ERROR"
+
+
+def is_api_error(error):
+    """Classify SDK failures at the existing batch continuation boundary."""
+    return isinstance(error, openai.APIError)
 
 
 class ACEBatch:
@@ -90,7 +97,7 @@ class ACEBatch:
         
         self.best_playbook = self.playbook
         # Track global bullet ID
-        self.next_global_id = 1
+        self.next_global_id = get_next_global_id(self.playbook)
     
     def _initialize_empty_playbook(self) -> str:
         """Initialize an empty playbook with standard sections."""
@@ -136,6 +143,10 @@ class ACEBatch:
             aug_factor = 1
         else:
             aug_factor = max(1, aug_factor)
+        if config.get('enable_playbook_lifecycle', False) and (
+            config.get('use_bulletpoint_analyzer', False) or getattr(self, 'use_bulletpoint_analyzer', False)
+        ):
+            raise ValueError('playbook lifecycle is incompatible with the legacy BulletpointAnalyzer')
         return {
             'num_epochs': config.get('num_epochs', 1),
             'max_num_rounds': config.get('max_num_rounds', 3),
@@ -143,6 +154,8 @@ class ACEBatch:
             'eval_steps': config.get('eval_steps', 100),
             'save_steps': config.get('save_steps', 50),
             'token_budget': config.get('playbook_token_budget', 80000),
+            'enforce_playbook_token_budget': config.get('enforce_playbook_token_budget', False),
+            'enable_playbook_lifecycle': config.get('enable_playbook_lifecycle', False),
             'task_name': config.get('task_name', 'default'),
             'use_json_mode': config.get('json_mode', False),
             'no_ground_truth': config.get('no_ground_truth', False),
@@ -630,7 +643,7 @@ class ACEBatch:
         
         Architecture:
             Phase 1 (PARALLEL): Run generator + reflector for each sample in separate threads
-            Phase 2 (SYNC):     Propose ADD operations per reflection group, reduce them, apply once
+            Phase 2 (SYNC):     Propose operations per reflection group, reduce them, apply once
             Phase 3 (PARALLEL): Run post-curator generation for each sample in separate threads
         
         Args:
@@ -647,6 +660,9 @@ class ACEBatch:
         Returns:
             List of (pre_train_answer, post_train_answer, tracking_dict) tuples, one per sample
         """
+        lifecycle_enabled = config_params.get('enable_playbook_lifecycle', False)
+        if lifecycle_enabled and self.use_bulletpoint_analyzer:
+            raise ValueError('playbook lifecycle is incompatible with the legacy BulletpointAnalyzer')
         token_budget = config_params['token_budget']
         use_json_mode = config_params['use_json_mode']
         no_ground_truth = config_params['no_ground_truth']
@@ -810,7 +826,7 @@ class ACEBatch:
             except Exception:
                 pass
             stats = get_playbook_stats(base_playbook)
-            operations, _ = self.curator.propose_operations(
+            operations, proposal_info = self.curator.propose_operations(
                 current_playbook=base_playbook,
                 recent_reflection=combined_reflection,
                 question_context=combined_context,
@@ -822,14 +838,19 @@ class ACEBatch:
                 use_json_mode=use_json_mode,
                 call_id=call_id,
                 log_dir=log_dir,
+                enable_playbook_lifecycle=lifecycle_enabled,
             )
-            return {
+            group = {
                 "group_id": group_idx,
                 "sample_numbers": [record["sample_number"] for record in group_records],
                 "operations": operations,
             }
+            if lifecycle_enabled and isinstance(proposal_info, dict):
+                group["lifecycle_decision"] = proposal_info.get("playbook_lifecycle", {})
+            return group
 
         operation_groups = []
+        proposal_rejections = []
         if reflection_records:
             configured_num_groups = config_params.get('curator_num_groups')
             if configured_num_groups is None:
@@ -879,6 +900,8 @@ class ACEBatch:
                     except Exception as e:
                         print(f"  ERROR in curator proposal group {group_id}: {e}")
                         raise
+                    if group_result.get("lifecycle_decision", {}).get("status") == "rejected":
+                        proposal_rejections.append(group_result["lifecycle_decision"])
                     if group_result["operations"]:
                         operation_groups.append(group_result)
 
@@ -888,14 +911,16 @@ class ACEBatch:
 
         proposed_operation_count = sum(len(group["operations"]) for group in operation_groups)
         final_operations = []
+        budget_decision = None
+        reducer_info = {}
         if proposed_operation_count == 0:
-            print("  No proposed ADD operations from curator groups")
+            print("  No proposed operations from curator groups")
         else:
             print(
                 f"\n--- Curator reducer ({len(operation_groups)} groups, "
-                f"{proposed_operation_count} proposed ADD operations) ---"
+                f"{proposed_operation_count} proposed operations) ---"
             )
-            final_operations, _ = self.curator.aggregate_operations(
+            final_operations, reducer_info = self.curator.aggregate_operations(
                 current_playbook=base_playbook,
                 operation_groups=operation_groups,
                 current_step=last_batch_step,
@@ -905,21 +930,43 @@ class ACEBatch:
                 use_json_mode=use_json_mode,
                 call_id=f"{step_id_prefix}_s_{last_batch_step}_reducer",
                 log_dir=log_dir,
+                enable_playbook_lifecycle=lifecycle_enabled,
             )
 
+        apply_operations = apply_playbook_lifecycle if lifecycle_enabled else apply_curator_operations_with_budget
         if final_operations:
-            self.playbook, self.next_global_id = apply_curator_operations(
+            self.playbook, self.next_global_id, budget_decision = apply_operations(
                 base_playbook,
                 final_operations,
                 self.next_global_id,
+                token_budget,
+                enforce=config_params['enforce_playbook_token_budget'],
             )
+            if budget_decision["status"] == "rejected":
+                print(f"  Reducer candidate rejected: {budget_decision['reason']}")
             print(
-                f"\n  Playbook updated after reducer: {len(final_operations)} ADD operations | "
+                f"\n  Playbook after reducer: {len(final_operations)} operations considered | "
                 f"{count_tokens(self.playbook)} tokens"
             )
         else:
-            self.playbook = base_playbook
+            self.playbook, self.next_global_id, budget_decision = apply_operations(
+                base_playbook, [], self.next_global_id, token_budget,
+                enforce=config_params['enforce_playbook_token_budget'],
+            )
             print(f"\n  Playbook unchanged by curator reducer: {count_tokens(self.playbook)} tokens")
+
+        if lifecycle_enabled and proposal_rejections:
+            if proposed_operation_count == 0:
+                budget_decision = {"status": "rejected", "reason": "invalid_proposals"}
+            budget_decision = dict(budget_decision, proposal_rejections=proposal_rejections)
+        if lifecycle_enabled and isinstance(reducer_info, dict):
+            reducer_decision = reducer_info.get('playbook_lifecycle', {})
+            if reducer_decision.get('status') == 'rejected':
+                budget_decision = reducer_decision
+        published_candidate = PlaybookCandidate(
+            playbook_before_phase2, next_global_id_before_phase2,
+            self.playbook, self.next_global_id, len(final_operations),
+        ) if lifecycle_enabled else None
 
         if self.use_bulletpoint_analyzer and self.bulletpoint_analyzer:
             print(f"  Running BulletpointAnalyzer (threshold={self.bulletpoint_analyzer_threshold})...")
@@ -965,6 +1012,7 @@ class ACEBatch:
                 post_curate_results[i] = (INCORRECT_DUE_TO_API_ERROR, False)
         
         phase3_api_error_occurred = False
+        phase3_error = None
         with ThreadPoolExecutor(max_workers=len(batch)) as executor:
             future_to_idx = {}
             for i, result in enumerate(sample_results):
@@ -980,17 +1028,32 @@ class ACEBatch:
                 except Exception as e:
                     if is_api_error(e) or config_params.get('continue_on_llm_error', False):
                         print(f"  API ERROR in post-curate sample {idx + 1}: {e} - "
-                              f"marking as incorrect, rolling back playbook, continuing")
+                              f"marking as incorrect, continuing")
                         post_curate_results[idx] = (INCORRECT_DUE_TO_API_ERROR, False)
                         phase3_api_error_occurred = True
                     else:
                         print(f"  ERROR in post-curate sample {idx + 1}: {e}")
-                        raise
+                        if published_candidate is None:
+                            raise
+                        phase3_error = e
         
+        if phase3_error is not None:
+            self.playbook, self.next_global_id, _ = rollback_playbook_candidate(
+                published_candidate, self.playbook, self.next_global_id,
+            )
+            raise phase3_error
+
         if phase3_api_error_occurred:
-            self.playbook = playbook_before_phase2
-            self.next_global_id = next_global_id_before_phase2
-            print(f"  Playbook and next_global_id rolled back to pre-Phase2 state due to API error(s)")
+            if published_candidate is not None:
+                self.playbook, self.next_global_id, rollback_decision = rollback_playbook_candidate(
+                    published_candidate, self.playbook, self.next_global_id,
+                )
+                budget_decision = dict(budget_decision or {}, rollback=rollback_decision)
+                print(f"  Playbook rollback: {rollback_decision['status']} ({rollback_decision['reason']})")
+            else:
+                self.playbook = playbook_before_phase2
+                self.next_global_id = next_global_id_before_phase2
+                print("  Playbook and next_global_id rolled back to pre-Phase2 state due to API error(s)")
         
         print(f"Phase 3 complete: All {len(batch)} post-curate generations done")
         
@@ -1002,6 +1065,8 @@ class ACEBatch:
             zip(sample_results, post_curate_results)
         ):
             tracking_dict = result["tracking_dict"]
+            if budget_decision is not None:
+                tracking_dict["playbook_lifecycle" if lifecycle_enabled else "playbook_budget"] = budget_decision
             tracking_dict["post_train_result"] = {
                 "final_answer": post_answer,
                 "is_correct": post_correct,

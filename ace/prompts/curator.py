@@ -183,3 +183,61 @@ Output ONLY a valid JSON object with these exact fields:
 
 ---
 """
+
+
+LIFECYCLE_OPERATIONS_SCHEMA = """Available operations (use stable IDs from the current playbook):
+- ADD: {"type": "ADD", "section": "an existing section", "content": "new advice"}
+- UPDATE: {"type": "UPDATE", "bullet_id": "existing-id", "content": "corrected advice"}
+- DELETE: {"type": "DELETE", "bullet_id": "existing-id"}
+- MERGE: {"type": "MERGE", "source_ids": ["first-id", "second-id"], "content": "combined advice"}
+Every content value must be a non-empty single line, without a bullet header.
+Each target must exist in the base playbook and may be touched only once in the
+final batch. MERGE needs at least two distinct sources from the same section;
+it keeps the first source ID and position, sums their historical counters and
+removes the other sources. UPDATE preserves its ID and historical counters.
+ADD allocates a fresh ID; DELETE and MERGE never reuse or allocate IDs.
+Do not target an ADD from this batch. Do not output CREATE_META or other types.
+Return ONLY JSON with a string reasoning and a list operations. Use [] when no
+change is justified. All operations are validated and published as one batch;
+a single invalid target, conflicting operation or exceeded enforced budget
+rejects the entire batch. Do not delete bullets solely because they are unused;
+provide a concise evidence-based rationale for changes.
+"""
+
+CURATOR_LIFECYCLE_PROMPT = """Curate the existing playbook using evidence from the recent reflection.
+The reflection is generated using {reflection_source}, unavailable to future
+playbook users. Correct inaccurate advice, consolidate overlapping advice,
+remove demonstrated harmful advice and add useful missing advice. Keep changes
+concise and actionable. Do not regenerate the entire playbook.
+
+Training progress: Sample {current_step} out of {total_samples}
+Total playbook token budget: {token_budget}
+Current playbook stats:
+{playbook_stats}
+Recent reflection:
+{recent_reflection}
+Current playbook:
+{current_playbook}
+Question context:
+{question_context}
+
+{operation_schema}
+"""
+
+CURATOR_LIFECYCLE_AGGREGATION_PROMPT = """Reduce independent playbook change proposals into one coherent batch.
+All groups used the same current playbook. Reconcile duplicate or conflicting
+targets before returning final operations. Keep useful complementary changes,
+remove unsupported or redundant proposals, and make conservative changes
+supported by the proposal evidence. Do not apply proposals independently.
+
+Training progress: Sample {current_step} out of {total_samples}
+Total playbook token budget: {token_budget}
+Current playbook stats:
+{playbook_stats}
+Current playbook:
+{current_playbook}
+Independent proposed operations:
+{proposed_operations}
+
+{operation_schema}
+"""

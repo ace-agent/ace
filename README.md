@@ -210,6 +210,7 @@ uv run python -m eval.finance.run \
 | `--save_steps` | Save intermediate playbooks every N steps | 50 |
 | `--max_tokens` | Maximum tokens for LLM responses | 4096 |
 | `--playbook_token_budget` | Total token budget for playbook | 80000 |
+| `--enforce_playbook_token_budget` | Reject curation candidates whose resulting playbook exceeds `playbook_token_budget`; uses `cl100k_base` playbook-only count | false |
 | `--test_workers` | Number of parallel workers for testing | 20 |
 | `--generator_model` | Model for generator | `DeepSeek-V3.1` |
 | `--reflector_model` | Model for reflector | `DeepSeek-V3.1` |
@@ -365,3 +366,5 @@ If you use ACE in your research, please cite our paper:
 Made with ❤️ by the ACE team
 
 </div>
+
+Optional [playbook lifecycle transactions](tutorials/playbook_lifecycle.md) provide validated UPDATE, MERGE and DELETE operations behind `enable_playbook_lifecycle` (default `false`).

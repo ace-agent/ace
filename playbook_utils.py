@@ -8,7 +8,7 @@ This file contains functions for parsing and manipulating the playbook.
 """
 import json
 import re
-from utils import get_section_slug
+from utils import count_tokens, get_section_slug
 
 def parse_playbook_line(line):
     """Parse a single playbook line to extract components"""
@@ -214,6 +214,46 @@ def apply_curator_operations(playbook_text, operations, next_id):
             final_lines.extend(others_bullets)
     
     return '\n'.join(final_lines), next_id
+
+
+def apply_curator_operations_with_budget(
+    playbook_text, operations, next_id, token_budget, enforce=False
+):
+    """Apply ADD operations with an optional playbook-only token budget."""
+    if enforce and (
+        isinstance(token_budget, bool) or not isinstance(token_budget, int) or token_budget < 0
+    ):
+        raise ValueError("token_budget must be a non-negative integer")
+    operations = [op for op in operations if op["type"] == "ADD"]
+    if not operations:
+        base_tokens = count_tokens(playbook_text)
+        return playbook_text, next_id, {
+            "enforced": bool(enforce),
+            "status": "accepted",
+            "base_tokens": base_tokens,
+            "candidate_tokens": base_tokens,
+            "budget_tokens": token_budget if enforce else None,
+            "reason": "no_operations" if enforce else "enforcement_disabled",
+        }
+    candidate, candidate_next_id = apply_curator_operations(
+        playbook_text, operations, next_id
+    )
+    base_tokens = count_tokens(playbook_text)
+    candidate_tokens = count_tokens(candidate)
+    decision = {
+        "enforced": bool(enforce),
+        "status": "accepted",
+        "base_tokens": base_tokens,
+        "candidate_tokens": candidate_tokens,
+        "budget_tokens": token_budget if enforce else None,
+        "reason": "enforcement_disabled" if not enforce else "within_budget",
+    }
+    if not enforce:
+        return candidate, candidate_next_id, decision
+    if candidate_tokens > token_budget:
+        decision.update(status="rejected", reason="candidate_exceeds_budget")
+        return playbook_text, next_id, decision
+    return candidate, candidate_next_id, decision
 
 def get_playbook_stats(playbook_text):
     """Generate statistics about the playbook"""

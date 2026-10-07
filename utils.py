@@ -157,7 +157,7 @@ def extract_answer(response):
     
 enc = tiktoken.get_encoding("cl100k_base")
 def count_tokens(prompt: str) -> int:
-    return len(enc.encode(prompt))
+    return len(enc.encode(prompt, disallowed_special=()))
 
 
 def evaluate_single_test_sample(args_tuple, data_processor) -> Tuple[Dict, str]:

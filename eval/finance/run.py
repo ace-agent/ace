@@ -72,6 +72,10 @@ def parse_args():
                         help="Max tokens for LLM responses")
     parser.add_argument("--playbook_token_budget", type=int, default=80000,
                         help="Total token budget for playbook")
+    parser.add_argument("--enable_playbook_lifecycle", action="store_true",
+                        help="Enable validated UPDATE, MERGE and DELETE transactions")
+    parser.add_argument("--enforce_playbook_token_budget", action="store_true",
+                        help="Reject curator candidates over the playbook token budget")
     parser.add_argument("--test_workers", type=int, default=20,
                         help="Number of parallel workers for testing")
     
@@ -227,6 +231,8 @@ def main():
         'online_eval_frequency': args.online_eval_frequency,
         'save_steps': args.save_steps,
         'playbook_token_budget': args.playbook_token_budget,
+        'enforce_playbook_token_budget': args.enforce_playbook_token_budget,
+        'enable_playbook_lifecycle': args.enable_playbook_lifecycle,
         'task_name': args.task_name,
         'mode': args.mode,
         'json_mode': args.json_mode,

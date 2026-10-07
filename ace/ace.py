@@ -15,6 +15,7 @@ from typing import Dict, List, Tuple, Optional, Any
 
 from .core import Generator, Reflector, Curator, BulletpointAnalyzer
 from playbook_utils import *
+from playbook_lifecycle import PlaybookCandidate, rollback_playbook_candidate
 from logger import *
 from utils import *
 
@@ -90,7 +91,7 @@ class ACE:
         
         self.best_playbook = self.playbook
         # Track global bullet ID
-        self.next_global_id = 1
+        self.next_global_id = get_next_global_id(self.playbook)
     
     def _initialize_empty_playbook(self) -> str:
         """Initialize an empty playbook with standard sections."""
@@ -118,6 +119,10 @@ class ACE:
         Returns:
             Dictionary with extracted parameters
         """
+        if config.get('enable_playbook_lifecycle', False) and (
+            config.get('use_bulletpoint_analyzer', False) or getattr(self, 'use_bulletpoint_analyzer', False)
+        ):
+            raise ValueError('playbook lifecycle is incompatible with the legacy BulletpointAnalyzer')
         return {
             'num_epochs': config.get('num_epochs', 1),
             'max_num_rounds': config.get('max_num_rounds', 3),
@@ -125,6 +130,8 @@ class ACE:
             'eval_steps': config.get('eval_steps', 100),
             'save_steps': config.get('save_steps', 50),
             'token_budget': config.get('playbook_token_budget', 80000),
+            'enforce_playbook_token_budget': config.get('enforce_playbook_token_budget', False),
+            'enable_playbook_lifecycle': config.get('enable_playbook_lifecycle', False),
             'task_name': config.get('task_name', 'default'),
             'use_json_mode': config.get('json_mode', False),
             'no_ground_truth': config.get('no_ground_truth', False),
@@ -575,13 +582,19 @@ class ACE:
                            reflection_content=reflection_content,
                            is_correct=is_correct)
         
+        curation_candidate = None
+        lifecycle_enabled = config_params.get('enable_playbook_lifecycle', False)
+        if lifecycle_enabled and self.use_bulletpoint_analyzer:
+            raise ValueError('playbook lifecycle is incompatible with the legacy BulletpointAnalyzer')
+
         # STEP 3: Curator - Periodically update playbook
         if step % curator_frequency == 0:
             print(f"\n--- Running Curator at step {step} ---")
             
             stats = get_playbook_stats(self.playbook)
+            curation_base = (self.playbook, self.next_global_id)
             
-            self.playbook, self.next_global_id, operations, _ = self.curator.curate(
+            self.playbook, self.next_global_id, operations, curator_call_info = self.curator.curate(
                 current_playbook=self.playbook,
                 recent_reflection=reflection_content,
                 question_context=context,
@@ -593,8 +606,20 @@ class ACE:
                 use_json_mode=use_json_mode,
                 call_id=step_id,
                 log_dir=log_dir,
-                next_global_id=self.next_global_id
+                next_global_id=self.next_global_id,
+                enforce_playbook_budget=config_params['enforce_playbook_token_budget'],
+                enable_playbook_lifecycle=lifecycle_enabled,
             )
+            if lifecycle_enabled:
+                curation_candidate = PlaybookCandidate(
+                    *curation_base, self.playbook, self.next_global_id, len(operations),
+                )
+                tracking_dict['playbook_lifecycle'] = curator_call_info.get('playbook_lifecycle', {})
+            if config_params['enforce_playbook_token_budget']:
+                tracking_dict['curator_result'] = (
+                    curator_call_info.get('playbook_budget', {})
+                    if isinstance(curator_call_info, dict) else {}
+                )
             
             # Run bulletpoint analyzer if enabled
             if self.use_bulletpoint_analyzer and self.bulletpoint_analyzer:
@@ -606,16 +631,24 @@ class ACE:
                 )
         
         # STEP 4: Post-curator generation
-        gen_response, _, _ = self.generator.generate(
-            question=question,
-            playbook=self.playbook,
-            context=context,
-            reflection="(empty)",
-            use_json_mode=use_json_mode,
-            call_id=f"{step_id}_post_curate",
-            log_dir=log_dir
-        )
+        try:
+            gen_response, _, _ = self.generator.generate(
+                question=question,
+                playbook=self.playbook,
+                context=context,
+                reflection="(empty)",
+                use_json_mode=use_json_mode,
+                call_id=f"{step_id}_post_curate",
+                log_dir=log_dir
+            )
         
+        except Exception:
+            if curation_candidate is not None:
+                self.playbook, self.next_global_id, _ = rollback_playbook_candidate(
+                    curation_candidate, self.playbook, self.next_global_id,
+                )
+            raise
+
         final_answer = extract_answer(gen_response)
         post_train_answer = final_answer
         
