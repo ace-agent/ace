@@ -143,6 +143,7 @@ class ACEBatch:
             'eval_steps': config.get('eval_steps', 100),
             'save_steps': config.get('save_steps', 50),
             'token_budget': config.get('playbook_token_budget', 80000),
+            'enforce_playbook_token_budget': config.get('enforce_playbook_token_budget', False),
             'task_name': config.get('task_name', 'default'),
             'use_json_mode': config.get('json_mode', False),
             'no_ground_truth': config.get('no_ground_truth', False),
@@ -888,6 +889,7 @@ class ACEBatch:
 
         proposed_operation_count = sum(len(group["operations"]) for group in operation_groups)
         final_operations = []
+        budget_decision = None
         if proposed_operation_count == 0:
             print("  No proposed ADD operations from curator groups")
         else:
@@ -908,17 +910,28 @@ class ACEBatch:
             )
 
         if final_operations:
-            self.playbook, self.next_global_id = apply_curator_operations(
+            self.playbook, self.next_global_id, budget_decision = apply_curator_operations_with_budget(
                 base_playbook,
                 final_operations,
                 self.next_global_id,
+                token_budget,
+                enforce=config_params['enforce_playbook_token_budget'],
             )
+            if budget_decision["status"] == "rejected":
+                print(
+                    "  Reducer candidate rejected by playbook budget: "
+                    f"{budget_decision['candidate_tokens']} > "
+                    f"{budget_decision['budget_tokens']} tokens"
+                )
             print(
-                f"\n  Playbook updated after reducer: {len(final_operations)} ADD operations | "
+                f"\n  Playbook after reducer: {len(final_operations)} ADD operations considered | "
                 f"{count_tokens(self.playbook)} tokens"
             )
         else:
-            self.playbook = base_playbook
+            self.playbook, self.next_global_id, budget_decision = apply_curator_operations_with_budget(
+                base_playbook, [], self.next_global_id, token_budget,
+                enforce=config_params['enforce_playbook_token_budget'],
+            )
             print(f"\n  Playbook unchanged by curator reducer: {count_tokens(self.playbook)} tokens")
 
         if self.use_bulletpoint_analyzer and self.bulletpoint_analyzer:
@@ -1002,6 +1015,8 @@ class ACEBatch:
             zip(sample_results, post_curate_results)
         ):
             tracking_dict = result["tracking_dict"]
+            if budget_decision is not None:
+                tracking_dict["playbook_budget"] = budget_decision
             tracking_dict["post_train_result"] = {
                 "final_answer": post_answer,
                 "is_correct": post_correct,

@@ -125,6 +125,7 @@ class ACE:
             'eval_steps': config.get('eval_steps', 100),
             'save_steps': config.get('save_steps', 50),
             'token_budget': config.get('playbook_token_budget', 80000),
+            'enforce_playbook_token_budget': config.get('enforce_playbook_token_budget', False),
             'task_name': config.get('task_name', 'default'),
             'use_json_mode': config.get('json_mode', False),
             'no_ground_truth': config.get('no_ground_truth', False),
@@ -581,7 +582,7 @@ class ACE:
             
             stats = get_playbook_stats(self.playbook)
             
-            self.playbook, self.next_global_id, operations, _ = self.curator.curate(
+            self.playbook, self.next_global_id, operations, curator_call_info = self.curator.curate(
                 current_playbook=self.playbook,
                 recent_reflection=reflection_content,
                 question_context=context,
@@ -593,8 +594,14 @@ class ACE:
                 use_json_mode=use_json_mode,
                 call_id=step_id,
                 log_dir=log_dir,
-                next_global_id=self.next_global_id
+                next_global_id=self.next_global_id,
+                enforce_playbook_budget=config_params['enforce_playbook_token_budget']
             )
+            if config_params['enforce_playbook_token_budget']:
+                tracking_dict['curator_result'] = (
+                    curator_call_info.get('playbook_budget', {})
+                    if isinstance(curator_call_info, dict) else {}
+                )
             
             # Run bulletpoint analyzer if enabled
             if self.use_bulletpoint_analyzer and self.bulletpoint_analyzer:
