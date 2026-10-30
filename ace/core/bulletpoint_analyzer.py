@@ -176,7 +176,7 @@ class BulletpointAnalyzer:
             # Find all items similar to i
             similar_indices = []
             for j in range(i + 1, len(bullets)):
-                if similarity_matrix[i, j] >= threshold:
+                if j not in visited and similarity_matrix[i, j] >= threshold:
                     similar_indices.append(j)
             
             if similar_indices:
